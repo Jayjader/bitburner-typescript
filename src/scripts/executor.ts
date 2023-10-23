@@ -41,6 +41,7 @@ export async function main(ns: NS) {
   // todo: dump JSON.stringify([...workers]) into file in /data/ on exit
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    await ns.sleep(200);
     const commandRaw = ns.peek(ports.commandBus) as string;
     if (commandRaw === "NULL PORT DATA") {
       await ns.sleep(1_000);
@@ -69,9 +70,11 @@ export async function main(ns: NS) {
     const [, destination] = destination_matcher.exec(commandRaw)!;
 
     if (commands.Crack.test(commandRaw)) {
+      await ns.sleep(100);
       if (ns.exec(scripts.crack, "home", 1, destination)) {
         log({ message: "crack launched", destination });
       }
+      await ns.sleep(100);
       continue;
     }
 
@@ -166,8 +169,9 @@ function spawnWorker(
     return 0;
   }
   log({ message: "spawning worker", command, destination, target });
+  // if the script fails post-exec then executor hangs on next debug command
   const gpid = ns.exec(scripts[command], destination, threads, target);
-  if (gpid) {
+  if (gpid > 0) {
     ns.toast(
       `New ${command} worker (${gpid}) on ${destination} targeting ${target} with ${threads} threads.`,
       "info",

@@ -1,4 +1,4 @@
-import { NS } from "@ns";
+import { AutocompleteData, NS } from "@ns";
 import {
   type ServerAttributes,
   type TaskAllocation,
@@ -19,7 +19,24 @@ async function command(ns: NS, commandString: string) {
     await ns.sleep(150);
   }
 }
+const flags: Parameters<AutocompleteData["flags"]>[0] = [
+  ["crack", false],
+  ["allocate", false],
+  ["dry-run", false],
+];
 export async function main(ns: NS) {
+  const parsedFlags = ns.flags(flags);
+  if (!(parsedFlags.crack || parsedFlags.allocate)) {
+    ns.tprintf("Run crack or allocate commands on automated targets");
+    ns.tprintf(
+      `USAGE: run ${ns.getScriptName()} --${flags[0][0]} <true|false> --${
+        flags[1][0]
+      } <true|false> {--${flags[2][0]}}`,
+    );
+    ns.tprintf("Example:");
+    ns.tprintf(`> run ${ns.getScriptName()} --${flags[0][0]} true`);
+    return;
+  }
   ns.disableLog("sleep");
   ns.disableLog("scan");
   log = createLogger(ns, logFile);
@@ -76,19 +93,29 @@ export async function main(ns: NS) {
   };
 
   // eslint-disable-next-line no-constant-condition
-  while (true) {
-    portBusters = await countAvailablePortOpeners(ns);
+  portBusters = await countAvailablePortOpeners(ns);
+  const targets = getTargets(hosts, ns.getHackingLevel(), portBusters);
+  if (parsedFlags.crack) {
     for (const [host] of getFreeHosts(hosts, portBusters)) {
       if (!ns.hasRootAccess(host)) {
-        await commands.crack(host).then(() => ns.sleep(250));
+        if (parsedFlags["dry-run"]) {
+          log({ crack: host });
+        } else {
+          await commands.crack(host).then(() => ns.sleep(250));
+        }
       }
     }
-    const targets = getTargets(hosts, ns.getHackingLevel(), portBusters);
     for (const [host] of targets) {
       if (!ns.hasRootAccess(host)) {
-        await commands.crack(host).then(() => ns.sleep(250));
+        if (parsedFlags["dry-run"]) {
+          log({ crack: host });
+        } else {
+          await commands.crack(host).then(() => ns.sleep(250));
+        }
       }
     }
+  }
+  if (parsedFlags.allocate) {
     type ServerAllocation = ServerAttributes & {
       allocated: boolean;
       allocatableRam: number;
@@ -159,10 +186,12 @@ export async function main(ns: NS) {
         log({
           message: "attempting to allocate threads",
           threadsLeft,
-          available: availableHosts.map(([name, { allocatableRam }]) => [
-            name,
-            Math.floor(allocatableRam * 10) / 10,
-          ]),
+          available: Object.fromEntries(
+            availableHosts.map(([name, { allocatableRam }]) => [
+              name,
+              Math.floor(allocatableRam * 10) / 10,
+            ]),
+          ),
         });
         const canAllocateMost = availableHosts
           .filter(([, { allocatableRam }]) => allocatableRam >= basicRamCost)
@@ -208,8 +237,11 @@ export async function main(ns: NS) {
     }
     for (const [server, tasks] of allocatedTasks) {
       for (const { target, threads } of tasks) {
-        await commands.allocate(server)(target)(threads);
-        // log({ allocate: [server, target, threads] });
+        if (parsedFlags["dry-run"]) {
+          log({ allocate: [server, target, threads] });
+        } else {
+          await commands.allocate(server)(target)(threads);
+        }
       }
       await ns.sleep(100);
     }
