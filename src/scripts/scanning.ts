@@ -62,12 +62,16 @@ export function getAllocatableRam(
   );
   const result = maxRam - usedRam + workerUsedRam;
   log({
-    message: "getting allocatable ram",
+    message: "calculated allocatable ram",
+    serverName,
     maxRam,
     usedRam,
     workerUsedRam,
     result,
   });
+  if (serverName === "home") {
+    return Math.max(0, result - 200);
+  }
   return result;
 }
 export function scanServerForRunningWorkers(

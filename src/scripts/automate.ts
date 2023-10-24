@@ -31,7 +31,19 @@ const flags: Parameters<AutocompleteData["flags"]>[0] = [
   ["crack", false],
   ["allocate", false],
   ["dry-run", false],
+  ["allow-home", false],
 ];
+
+export function autocomplete(data: AutocompleteData, args: string[]) {
+  const parsedFlags = data.flags(flags);
+  const remainingFlags = flags
+    .map(([name]) => name)
+    .filter((name) => parsedFlags[name] === undefined);
+  if (args.length && args[args.length - 1].startsWith("--")) {
+    return remainingFlags;
+  }
+  return remainingFlags.map((name) => `--${name}`);
+}
 export async function main(ns: NS) {
   const parsedFlags = ns.flags(flags);
   if (!(parsedFlags.crack || parsedFlags.allocate)) {
@@ -129,7 +141,11 @@ export async function main(ns: NS) {
       allocatableRam: number;
     };
     const availableHosts = [...hosts]
-      .filter(([name]) => name !== "home" && ns.hasRootAccess(name))
+      .filter(
+        ([name]) =>
+          (parsedFlags["allow-home"] || name !== "home") &&
+          ns.hasRootAccess(name),
+      )
       .map(
         ([name, attributes]) =>
           [
