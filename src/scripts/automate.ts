@@ -16,7 +16,7 @@ const scripts = { basic: "scripts/simple-grow-weaken-hack.js" };
 async function command(ns: NS, commandString: string) {
   log(commandString);
   while (!ns.tryWritePort(ports.commandBus, commandString)) {
-    await ns.sleep(150);
+    await ns.sleep(550);
   }
 }
 const flags: Parameters<AutocompleteData["flags"]>[0] = [
@@ -121,7 +121,7 @@ export async function main(ns: NS) {
       allocatableRam: number;
     };
     const availableHosts = [...hosts]
-      .filter(([name]) => ns.hasRootAccess(name))
+      .filter(([name]) => name !== "home" && ns.hasRootAccess(name))
       .map(
         ([name, attributes]) =>
           [
@@ -175,13 +175,6 @@ export async function main(ns: NS) {
       // no valid smallest unallocated => look at the allocated
       // no unallocated => look at the allocated
       let threadsLeft = threadsNeeded;
-      // division is brought inside to avoid extra multiplications <- this can only be done because RAM cost per thread is the same for all tasks for now
-      const threadsAllocatable = (
-        allocatableRam: number,
-        existingTasks: TaskAllocation[],
-      ) =>
-        allocatableRam / basicRamCost -
-        existingTasks.reduce((accum, { threads }) => accum + threads, 0);
       while (threadsLeft > 0) {
         log({
           message: "attempting to allocate threads",
@@ -197,7 +190,7 @@ export async function main(ns: NS) {
           .filter(([, { allocatableRam }]) => allocatableRam >= basicRamCost)
           .sort(
             ([, aAllocation], [, bAllocation]) =>
-              bAllocation.allocatableRam - aAllocation.allocatableRam,
+              aAllocation.allocatableRam - bAllocation.allocatableRam,
           )
           .pop();
         if (canAllocateMost === undefined) {

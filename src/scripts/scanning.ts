@@ -29,7 +29,8 @@ export function getTargets(
   return [...hosts]
     .filter(
       ([name, { minPorts, minLevel, maxMoney, growthFactor }]) =>
-        (name === "home" || minPorts <= availableBusters) &&
+        name !== "home" &&
+        minPorts <= availableBusters &&
         minLevel < currentLevel / 2 &&
         maxMoney > 0 &&
         growthFactor > 0,
