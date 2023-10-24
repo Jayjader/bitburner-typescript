@@ -64,47 +64,72 @@ export async function main(ns: NS) {
       continue;
     }
 
-    if (!destination_matcher.test(commandRaw)) {
-      continue;
-    }
-    const [, destination] = destination_matcher.exec(commandRaw)!;
+    const commandList = commandRaw.startsWith("[")
+      ? (JSON.parse(commandRaw) as string[])
+      : [commandRaw];
+    log({ commandList });
 
-    if (commands.Crack.test(commandRaw)) {
-      await ns.sleep(100);
-      if (ns.exec(scripts.crack, "home", 1, destination)) {
-        log({ message: "crack launched", destination });
+    for (const command of commandList) {
+      if (!destination_matcher.test(command)) {
+        continue;
       }
-      await ns.sleep(100);
-      continue;
-    }
+      const [, destination] = destination_matcher.exec(command)!;
 
-    if (!workers.get(destination)) {
-      workers.set(destination, []);
-    }
-    const workersAtDestination = workers.get(destination)!;
-    if (commands.Target.test(commandRaw)) {
-      // todo
-    } else if (commands.Basic.test(commandRaw)) {
-      // todo
-    } else if (commands.Allocate.test(commandRaw)) {
-      const [, newTarget, threadCount] = commands.Allocate.exec(commandRaw)!;
-      const threads = parseInt(threadCount, 10);
-      const existingWorker = workersAtDestination.find(
-        ({ target }) => target === newTarget,
-      );
-      if (existingWorker) {
-        log({
-          message: "found existing worker for task to allocate",
-          destination,
-          newTarget,
-          threads,
-          existingWorker,
-        });
-        if (
-          existingWorker.command !== "basic" ||
-          existingWorker.threads !== threads
-        ) {
-          killWorker(ns, existingWorker);
+      if (commands.Crack.test(command)) {
+        await ns.sleep(100);
+        if (ns.exec(scripts.crack, "home", 1, destination)) {
+          log({ message: "crack launched", destination });
+        }
+        await ns.sleep(100);
+        continue;
+      }
+
+      if (!workers.get(destination)) {
+        workers.set(destination, []);
+      }
+      const workersAtDestination = workers.get(destination)!;
+      if (commands.Target.test(command)) {
+        // todo
+      } else if (commands.Basic.test(command)) {
+        // todo
+      } else if (commands.Allocate.test(command)) {
+        const [, newTarget, threadCount] = commands.Allocate.exec(command)!;
+        const threads = parseInt(threadCount, 10);
+        const existingWorker = workersAtDestination.find(
+          ({ target }) => target === newTarget,
+        );
+        if (existingWorker) {
+          log({
+            message: "found existing worker for task to allocate",
+            destination,
+            newTarget,
+            threads,
+            existingWorker,
+          });
+          if (
+            existingWorker.command !== "basic" ||
+            existingWorker.threads !== threads
+          ) {
+            killWorker(ns, existingWorker);
+            await ns.sleep(500);
+            const gpid = spawnWorker(
+              ns,
+              "basic",
+              destination,
+              newTarget,
+              threads,
+            );
+            await ns.sleep(500);
+            if (gpid) {
+              existingWorker.gpid = gpid;
+              existingWorker.threads = threads;
+              existingWorker.command = "basic";
+            } else {
+              log("spawning allocated worker failed");
+              return;
+            }
+          }
+        } else {
           const gpid = spawnWorker(
             ns,
             "basic",
@@ -112,36 +137,30 @@ export async function main(ns: NS) {
             newTarget,
             threads,
           );
-          if (gpid) {
-            existingWorker.gpid = gpid;
-            existingWorker.threads = threads;
-            existingWorker.command = "basic";
-          }
+          await ns.sleep(500);
+          workersAtDestination.push({
+            command: "basic",
+            target: newTarget,
+            gpid,
+            threads,
+          });
         }
-      } else {
-        const gpid = spawnWorker(ns, "basic", destination, newTarget, threads);
-        workersAtDestination.push({
-          command: "basic",
-          target: newTarget,
-          gpid,
-          threads,
-        });
-      }
-    } else if (commands.Grow.test(commandRaw)) {
-      // todo
-    } else if (commands.Weaken.test(commandRaw)) {
-      // todo
-    } else if (commands.Hack.test(commandRaw)) {
-      // todo
-    } else if (commands.Stop.test(commandRaw)) {
-      /*
+      } else if (commands.Grow.test(command)) {
+        // todo
+      } else if (commands.Weaken.test(command)) {
+        // todo
+      } else if (commands.Hack.test(command)) {
+        // todo
+      } else if (commands.Stop.test(command)) {
+        /*
             killWorker(ns, worker)
             */
-    } else if (commands.Purge.test(commandRaw)) {
-      const [, server] = commands.Purge.exec(commandRaw)!;
-      ns.killall(server);
-    } else if (commands.StopAll.test(commandRaw)) {
-      ns.exec(scripts.killall, "home");
+      } else if (commands.Purge.test(command)) {
+        const [, server] = commands.Purge.exec(command)!;
+        ns.killall(server);
+      } else if (commands.StopAll.test(command)) {
+        ns.exec(scripts.killall, "home");
+      }
     }
   }
 }

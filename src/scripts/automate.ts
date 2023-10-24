@@ -19,6 +19,14 @@ async function command(ns: NS, commandString: string) {
     await ns.sleep(550);
   }
 }
+async function commandList(ns: NS, commands: string[]) {
+  log({ message: "writing command list", commands });
+  const stringified = JSON.stringify(commands);
+  const handle = ns.getPortHandle(ports.commandBus);
+  while (!handle.tryWrite(stringified)) {
+    await ns.sleep(550);
+  }
+}
 const flags: Parameters<AutocompleteData["flags"]>[0] = [
   ["crack", false],
   ["allocate", false],
@@ -228,17 +236,20 @@ export async function main(ns: NS) {
         });
       }
     }
+    const commandArray = [];
     for (const [server, tasks] of allocatedTasks) {
       for (const { target, threads } of tasks) {
-        if (parsedFlags["dry-run"]) {
-          log({ allocate: [server, target, threads] });
-        } else {
-          await commands.allocate(server)(target)(threads);
-        }
+        commandArray.push(`allocate:${server}:${target}:${threads}`);
+        // await commands.allocate(server)(target)(threads);
       }
-      await ns.sleep(100);
     }
-    await ns.sleep(10_000);
+    if (commandArray.length > 0) {
+      if (parsedFlags["dry-run"]) {
+        log({ commandArray });
+      } else {
+        await commandList(ns, commandArray);
+      }
+    }
   }
 }
 
