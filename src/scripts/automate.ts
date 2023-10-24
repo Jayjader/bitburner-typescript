@@ -77,7 +77,7 @@ export async function main(ns: NS) {
 
   const basicRamCost = ns.getScriptRam("scripts/simple-grow-weaken-hack.js");
   const hackThreadsNeeded = (serverName: string) =>
-    1 / ns.hackAnalyze(serverName);
+    1 / Math.max(ns.hackAnalyze(serverName), 1);
   const growThreadsNeeded =
     (serverName: string) => (server: { maxMoney: number }) =>
       ns.growthAnalyze(serverName, server.maxMoney); // presume server has 0 available money
