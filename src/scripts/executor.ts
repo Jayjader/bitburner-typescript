@@ -230,7 +230,7 @@ export async function main(ns: NS) {
             } hosts and ${pids.length} processes. (hosts: ${hosts.join(
               ", ",
             )}; pids: ${pids.join(", ")})`,
-            "success",
+            "info",
             25_000,
           );
         }
