@@ -3,9 +3,8 @@ import { ports } from "scripts/constants.js";
 import { createLogger } from "scripts/logging.js";
 import {
   type RunningWorker,
-  type WorkerConfig,
-  updateConfigs,
   scanForRunningWorkers,
+  updateConfigs,
 } from "/scripts/scanning";
 
 const commands = {
@@ -38,16 +37,13 @@ export async function main(ns: NS) {
   ns.disableLog("sleep");
   ns.disableLog("scan");
   log = createLogger(ns, logFile);
+  const commandBus = ns.getPortHandle(ports.commandBus);
   const workers = new Map<string, Array<RunningWorker>>();
   // todo: dump JSON.stringify([...workers]) into file in /data/ on exit
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    await ns.sleep(200);
-    const commandRaw = ns.peek(ports.commandBus) as string;
-    if (commandRaw === "NULL PORT DATA") {
-      await ns.sleep(1_000);
-      continue;
-    }
+    await commandBus.nextWrite();
+    const commandRaw = ns.readPort(ports.commandBus) as string;
     log({ message: "command read", commandRaw });
     updateConfigs(
       log,
@@ -70,6 +66,7 @@ export async function main(ns: NS) {
       : [commandRaw];
     log({ commandList });
 
+    const spawned = [];
     for (const command of commandList) {
       if (!destination_matcher.test(command)) {
         continue;
@@ -112,7 +109,7 @@ export async function main(ns: NS) {
             existingWorker.threads !== threads
           ) {
             killWorker(ns, existingWorker);
-            await ns.sleep(500);
+            await ns.sleep(300);
             const gpid = spawnWorker(
               ns,
               "basic",
@@ -120,11 +117,18 @@ export async function main(ns: NS) {
               newTarget,
               threads,
             );
-            await ns.sleep(500);
+            await ns.sleep(250);
             if (gpid) {
               existingWorker.gpid = gpid;
               existingWorker.threads = threads;
               existingWorker.command = "basic";
+              spawned.push({
+                command: "basic",
+                destination,
+                target: newTarget,
+                threads,
+                gpid,
+              });
             } else {
               log("spawning allocated worker failed");
               return;
@@ -138,13 +142,22 @@ export async function main(ns: NS) {
             newTarget,
             threads,
           );
-          await ns.sleep(500);
-          workersAtDestination.push({
-            command: "basic",
-            target: newTarget,
-            gpid,
-            threads,
-          });
+          await ns.sleep(250);
+          if (gpid) {
+            workersAtDestination.push({
+              command: "basic",
+              target: newTarget,
+              gpid,
+              threads,
+            });
+            spawned.push({
+              command: "basic",
+              destination,
+              target: newTarget,
+              threads,
+              gpid,
+            });
+          }
         }
       } else if (commands.Share.test(command)) {
         const [, serverName, threads] = commands.Share.exec(command)!;
@@ -183,6 +196,46 @@ export async function main(ns: NS) {
         ns.exec(scripts.killall, "home");
       }
     }
+
+    if (spawned.length > 0) {
+      const spawnStats = spawned.reduce(
+        (accum, { command, gpid, destination, target, threads }) => {
+          // return `New ${command} worker (${gpid}) on ${destination} targeting ${target} with ${threads} threads.`;
+          if (!accum.has(command)) {
+            accum.set(command, new Map());
+          }
+          const commandStats = accum.get(command) as Map<
+            string,
+            { threads: number; pids: number[]; hosts: string[] }
+          >;
+          if (!commandStats.has(target)) {
+            commandStats.set(target, { threads: 0, pids: [], hosts: [] });
+          }
+          const targetStats = commandStats.get(target)!;
+          targetStats.threads += threads;
+          targetStats.pids.push(gpid);
+          targetStats.hosts.push(destination);
+          return accum;
+        },
+        new Map<
+          string,
+          Map<string, { threads: number; pids: number[]; hosts: string[] }>
+        >(),
+      );
+      for (const [command, targets] of spawnStats) {
+        for (const [target, { threads, pids, hosts }] of targets) {
+          ns.toast(
+            `${target}: ${threads} ${command} threads across ${
+              hosts.length
+            } hosts and ${pids.length} processes. (hosts: ${hosts.join(
+              ", ",
+            )}; pids: ${pids.join(", ")})`,
+            "success",
+            25_000,
+          );
+        }
+      }
+    }
   }
 }
 
@@ -208,17 +261,18 @@ function spawnWorker(
     log({ message: "not enough RAM to spawn worker", destination });
     return 0;
   }
-  log({ message: "spawning worker", command, destination, target });
+  const delay = command === "basic" ? Math.ceil(Math.random() * 10_000) : 0;
+  log({
+    message: "spawning worker",
+    command,
+    destination,
+    target,
+    threads,
+    delay,
+  });
+  const args = [target, ...(delay > 0 ? ["--delay", delay] : [])];
   // if the script fails post-exec then executor hangs on next debug command
-  const gpid = ns.exec(scripts[command], destination, threads, target);
-  if (gpid > 0) {
-    ns.toast(
-      `New ${command} worker (${gpid}) on ${destination} targeting ${target} with ${threads} threads.`,
-      "info",
-      5_000,
-    );
-  }
-  return gpid;
+  return ns.exec(scripts[command], destination, threads, ...args);
 }
 
 function killWorker(ns: NS, worker: RunningWorker) {
