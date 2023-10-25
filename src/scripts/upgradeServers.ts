@@ -25,6 +25,14 @@ export async function main(ns: NS) {
       }
     }
   }
+  ns.toast(
+    `Finished upgrading all servers to at least ${ns.formatRam(
+      size,
+      size < 2 ** 10 ? 0 : 2,
+    )} (${size})`,
+    "success",
+    10_000,
+  );
 }
 export function autocomplete(data: AutocompleteData) {
   const parsedFlags = data.flags(flags);
