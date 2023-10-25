@@ -13,14 +13,16 @@ export async function main(ns: NS) {
     return;
   }
   for (const serverName of ns.getPurchasedServers()) {
-    ns.printf(
-      `server upgrade cost: ${ns.getPurchasedServerUpgradeCost(
-        serverName,
-        size,
-      )}`,
-    );
-    while (!ns.upgradePurchasedServer(serverName, size)) {
-      await ns.sleep(1_000);
+    if (ns.getServerMaxRam(serverName) < size) {
+      ns.printf(
+        `${serverName} upgrade cost: ${ns.getPurchasedServerUpgradeCost(
+          serverName,
+          size,
+        )}`,
+      );
+      while (!ns.upgradePurchasedServer(serverName, size)) {
+        await ns.sleep(1_000);
+      }
     }
   }
 }
