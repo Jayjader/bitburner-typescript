@@ -19,6 +19,7 @@ const commands = {
   Purge: /purge:(?:\w|-|\.)+/,
   StopAll: /stopall/,
   Allocate: /allocate:(?:\w|-|\.)+:((?:\w|-|\.)+):(\d+)/,
+  Share: /share:((?:\w|-|\.)+):(\d+)/,
 };
 // matches a hostname after a :
 const destination_matcher = /\w+:((?:\w|-|\.)+)/;
@@ -145,6 +146,26 @@ export async function main(ns: NS) {
             threads,
           });
         }
+      } else if (commands.Share.test(command)) {
+        const [, serverName, threads] = commands.Share.exec(command)!;
+        const threadCount = parseInt(threads, 10);
+        ns.scp(scripts.share, serverName);
+        const gpid = ns.exec(scripts.share, serverName, threadCount);
+        if (gpid) {
+          log({
+            message: "spawned share worker",
+            serverName,
+            threadCount,
+            gpid,
+          });
+        } else {
+          log({
+            message: "spawning share worker failed",
+            serverName,
+            threadCount,
+          });
+        }
+        // workersAtDestination.push() <-- needed ? the following command will trigger a scan which might pick up the share scripts
       } else if (commands.Grow.test(command)) {
         // todo
       } else if (commands.Weaken.test(command)) {

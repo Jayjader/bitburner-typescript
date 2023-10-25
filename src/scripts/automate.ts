@@ -32,6 +32,7 @@ const flags: Parameters<AutocompleteData["flags"]>[0] = [
   ["allocate", false],
   ["dry-run", false],
   ["allow-home", false],
+  ["allow-share", false],
 ];
 
 export function autocomplete(data: AutocompleteData, args: string[]) {
@@ -46,7 +47,9 @@ export function autocomplete(data: AutocompleteData, args: string[]) {
 }
 export async function main(ns: NS) {
   const parsedFlags = ns.flags(flags);
-  if (!(parsedFlags.crack || parsedFlags.allocate)) {
+  if (
+    !(parsedFlags.crack || parsedFlags.allocate || parsedFlags["allow-share"])
+  ) {
     ns.tprintf("Run crack or allocate commands on automated targets");
     ns.tprintf(
       `USAGE: run ${ns.getScriptName()} --${flags[0][0]} <true|false> --${
@@ -135,33 +138,33 @@ export async function main(ns: NS) {
       }
     }
   }
+  type ServerAllocation = ServerAttributes & {
+    allocated: boolean;
+    allocatableRam: number;
+  };
+  const availableHosts = [...hosts]
+    .filter(
+      ([name]) =>
+        (parsedFlags["allow-home"] || name !== "home") &&
+        ns.hasRootAccess(name),
+    )
+    .map(
+      ([name, attributes]) =>
+        [
+          name,
+          {
+            ...attributes,
+            allocated: false,
+            allocatableRam: getAllocatableRamForServer(
+              name,
+              attributes.maxRam,
+              basicRamCost,
+            ),
+          },
+        ] as [string, ServerAllocation],
+    )
+    .filter(([, { allocatableRam }]) => allocatableRam > 0);
   if (parsedFlags.allocate) {
-    type ServerAllocation = ServerAttributes & {
-      allocated: boolean;
-      allocatableRam: number;
-    };
-    const availableHosts = [...hosts]
-      .filter(
-        ([name]) =>
-          (parsedFlags["allow-home"] || name !== "home") &&
-          ns.hasRootAccess(name),
-      )
-      .map(
-        ([name, attributes]) =>
-          [
-            name,
-            {
-              ...attributes,
-              allocated: false,
-              allocatableRam: getAllocatableRamForServer(
-                name,
-                attributes.maxRam,
-                basicRamCost,
-              ),
-            },
-          ] as [string, ServerAllocation],
-      )
-      .filter(([, { allocatableRam }]) => allocatableRam > 0);
     const allocatedTasks = new Map<string, TaskAllocation[]>();
     let nextTarget: [string, ServerAttributes] | undefined;
     // eslint-disable-next-line no-cond-assign
@@ -264,6 +267,30 @@ export async function main(ns: NS) {
         log({ commandArray });
       } else {
         await commandList(ns, commandArray);
+      }
+    }
+  }
+  if (parsedFlags["allow-share"]) {
+    const shareScriptRamCost = 4;
+    const toShare = availableHosts.filter(
+      ([, { allocatableRam }]) => allocatableRam > shareScriptRamCost,
+    );
+    const shareCommands = [];
+    for (const [serverName, allocation] of toShare) {
+      if (!parsedFlags["allow-home"] && serverName === "home") {
+        continue;
+      }
+      const threads = Math.floor(
+        allocation.allocatableRam / shareScriptRamCost,
+      );
+      shareCommands.push(`share:${serverName}:${threads}`);
+      allocation.allocated = true;
+    }
+    if (shareCommands.length > 0) {
+      if (parsedFlags["dry-run"]) {
+        log({ shareCommands });
+      } else {
+        await commandList(ns, shareCommands);
       }
     }
   }
