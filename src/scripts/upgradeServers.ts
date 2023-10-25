@@ -26,3 +26,10 @@ export async function main(ns: NS) {
     }
   }
 }
+export function autocomplete(data: AutocompleteData) {
+  const parsedFlags = data.flags(flags);
+  if (Object.keys(parsedFlags).length === 0) {
+    return [flags[0][0]];
+  }
+  return [];
+}
