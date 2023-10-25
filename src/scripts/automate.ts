@@ -116,22 +116,22 @@ export async function main(ns: NS) {
   portBusters = await countAvailablePortOpeners(ns);
   const targets = getTargets(hosts, ns.getHackingLevel(), portBusters);
   if (parsedFlags.crack) {
+    const crackCommands = [];
     for (const [host] of getFreeHosts(hosts, portBusters)) {
       if (!ns.hasRootAccess(host)) {
-        if (parsedFlags["dry-run"]) {
-          log({ crack: host });
-        } else {
-          await commands.crack(host).then(() => ns.sleep(250));
-        }
+        crackCommands.push(`crack:${host}`);
       }
     }
     for (const [host] of targets) {
       if (!ns.hasRootAccess(host)) {
-        if (parsedFlags["dry-run"]) {
-          log({ crack: host });
-        } else {
-          await commands.crack(host).then(() => ns.sleep(250));
-        }
+        crackCommands.push(`crack:${host}`);
+      }
+    }
+    if (crackCommands.length) {
+      if (parsedFlags["dry-run"]) {
+        log({ crackCommands });
+      } else {
+        await commandList(ns, crackCommands);
       }
     }
   }
