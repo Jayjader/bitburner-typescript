@@ -1,26 +1,23 @@
 import { AutocompleteData, NS } from "@ns";
 import {
+  getAllocatableRam,
+  getFreeHosts,
+  getTargets,
   type ServerAttributes,
   type TaskAllocation,
-  getTargets,
-  getFreeHosts,
-  scanServerForRunningWorkers,
-  getAllocatableRam,
 } from "/scripts/scanning";
 import { ports } from "scripts/constants";
-import { createLogger } from "scripts/logging";
+
 const executorScript = "scripts/executor.js";
-const logFile = `logs/automate__${new Date().toISOString()}.txt`;
-let log: ReturnType<typeof createLogger>;
 const scripts = { basic: "scripts/simple-grow-weaken-hack.js" };
 async function command(ns: NS, commandString: string) {
-  log(commandString);
+  console.debug({ message: "writing command", commandString });
   while (!ns.tryWritePort(ports.commandBus, commandString)) {
     await ns.sleep(550);
   }
 }
 async function commandList(ns: NS, commands: string[]) {
-  log({ message: "writing command list", commands });
+  console.debug({ message: "writing command list", commands });
   const stringified = JSON.stringify(commands);
   const handle = ns.getPortHandle(ports.commandBus);
   while (!handle.tryWrite(stringified)) {
@@ -62,13 +59,11 @@ export async function main(ns: NS) {
   }
   ns.disableLog("sleep");
   ns.disableLog("scan");
-  log = createLogger(ns, logFile);
   const getAllocatableRamForServer = (
     serverName: string,
     maxRam: number,
     ramCostPerThread: number,
-  ) =>
-    getAllocatableRam(ns, log, scripts, serverName, maxRam, ramCostPerThread);
+  ) => getAllocatableRam(ns, scripts, serverName, maxRam, ramCostPerThread);
   let portBusters = 0;
   const hosts = await mapServers(new Map(), ns);
 
@@ -119,22 +114,25 @@ export async function main(ns: NS) {
   portBusters = await countAvailablePortOpeners(ns);
   const targets = getTargets(hosts, ns.getHackingLevel(), portBusters);
   if (parsedFlags.crack) {
-    const crackCommands = [];
+    const crackTargets = [];
     for (const [host] of getFreeHosts(hosts, portBusters)) {
       if (!ns.hasRootAccess(host)) {
-        crackCommands.push(`crack:${host}`);
+        crackTargets.push(host);
       }
     }
     for (const [host] of targets) {
       if (!ns.hasRootAccess(host)) {
-        crackCommands.push(`crack:${host}`);
+        crackTargets.push(host);
       }
     }
-    if (crackCommands.length) {
+    if (crackTargets.length) {
       if (parsedFlags["dry-run"]) {
-        log({ crackCommands });
+        ns.tprintf(`Crack targets: ${crackTargets.join(", ")}`);
       } else {
-        await commandList(ns, crackCommands);
+        await commandList(
+          ns,
+          crackTargets.map((target) => `crack:${target}`),
+        );
       }
     }
   }
@@ -171,8 +169,13 @@ export async function main(ns: NS) {
     allocateTargets: while ((nextTarget = targets.shift())) {
       const [targetName] = nextTarget;
       const threadsNeeded = minThreadCount(nextTarget);
-      log({ targetName, threadsNeeded });
       const ramNeeded = threadsNeeded * basicRamCost;
+      console.debug({
+        message: "calculated cost to hack target",
+        targetName,
+        threadsNeeded,
+        ramNeeded,
+      });
       const smallestAllocatable = availableHosts
         .filter(
           ([, { allocated, allocatableRam }]) =>
@@ -186,14 +189,14 @@ export async function main(ns: NS) {
         allocatedTasks.set(serverName, [task]);
         serverAllocation.allocated = true;
         serverAllocation.allocatableRam -= threadsNeeded * basicRamCost;
-        log({
+        console.debug({
           message: "target covered in single allocation",
           server: [serverName, serverAllocation],
           tasks: allocatedTasks.get(serverName),
         });
         continue;
       }
-      log({
+      console.debug({
         message: "unable to cover target in single allocation",
         targetName,
         threadsNeeded,
@@ -203,7 +206,7 @@ export async function main(ns: NS) {
       // no unallocated => look at the allocated
       let threadsLeft = threadsNeeded;
       while (threadsLeft > 0) {
-        log({
+        console.debug({
           message: "attempting to allocate threads",
           threadsLeft,
           available: Object.fromEntries(
@@ -221,24 +224,29 @@ export async function main(ns: NS) {
           )
           .pop();
         if (canAllocateMost === undefined) {
-          log({ message: "allocation exhausted", targetName, threadsLeft });
+          console.info({
+            message: "allocation exhausted",
+            targetName,
+            threadsLeft,
+          });
           break allocateTargets; // no sense continuing to next target if we can't even allocate 1 thread somewhere
         }
         const [serverName, serverAllocation] = canAllocateMost;
-        log({
-          threadsCalculation: {
-            serverName,
-            serverAllocation,
-            threadsLeft,
-            basicRamCost,
-          },
-        });
         const threadsAvailable = Math.floor(
           serverAllocation.allocatableRam / basicRamCost,
         );
         const threads = Math.min(threadsAvailable, threadsLeft);
         const taskAllocationRamCost = threads * basicRamCost;
         const task = { target: targetName, threads };
+        console.debug({
+          message: "calculated threads to allocate for target on server",
+          serverName,
+          serverAllocation,
+          threadsAvailable,
+          task,
+          basicRamCost,
+          threadsLeft,
+        });
         if (!allocatedTasks.has(serverName)) {
           allocatedTasks.set(serverName, []);
         }
@@ -246,7 +254,7 @@ export async function main(ns: NS) {
         tasks.push(task);
         threadsLeft -= threads;
         serverAllocation.allocatableRam -= taskAllocationRamCost;
-        log({
+        console.debug({
           message: "partial allocation",
           serverName,
           task,
@@ -264,7 +272,7 @@ export async function main(ns: NS) {
     }
     if (commandArray.length > 0) {
       if (parsedFlags["dry-run"]) {
-        log({ commandArray });
+        ns.tprintf(`Commands: ${commandArray.join(", ")}`);
       } else {
         await commandList(ns, commandArray);
       }
@@ -288,7 +296,7 @@ export async function main(ns: NS) {
     }
     if (shareCommands.length > 0) {
       if (parsedFlags["dry-run"]) {
-        log({ shareCommands });
+        ns.tprintf(`Share: ${shareCommands.join(", ")}`);
       } else {
         await commandList(ns, shareCommands);
       }
@@ -330,6 +338,6 @@ async function countAvailablePortOpeners(ns: NS) {
     //comment
   }
 
-  log(`port openers found: ${count}`);
+  console.debug({ message: `port openers found`, count });
   return count;
 }

@@ -45,7 +45,6 @@ export function getTargets(
 
 export function getAllocatableRam(
   ns: NS,
-  log: (_: unknown) => void,
   scripts: Record<string, string>,
   serverName: string,
   maxRam: number,
@@ -62,7 +61,7 @@ export function getAllocatableRam(
     0,
   );
   const result = maxRam - usedRam + workerUsedRam;
-  log({
+  console.debug({
     message: "calculated allocatable ram",
     serverName,
     maxRam,
@@ -114,7 +113,6 @@ export type RunningWorker = {
 export type WorkerConfig = Partial<RunningWorker>;
 
 export function updateConfigs(
-  log: (_: unknown) => void,
   configs: Map<string, Array<RunningWorker>>,
   scanResults: Map<string, Array<RunningWorker>>,
 ) {
@@ -137,14 +135,18 @@ export function updateConfigs(
           result.some((r) => r.target === target && r.threads !== threads),
         )!) !== undefined
       ) {
-        log({ message: "configured worker found changed", to_replace, result });
+        console.debug({
+          message: "configured worker found changed",
+          to_replace,
+          result,
+        });
         to_replace.threads = result.find(
           ({ target }) => target === to_replace.target,
         )!.threads;
       }
     } else {
       for (const config of configs.get(server)!) {
-        log({ message: "configured worker missing", config, result });
+        console.debug({ message: "configured worker missing", config, result });
       }
       configs.delete(server);
     }
@@ -160,7 +162,11 @@ export function updateConfigs(
     const configured = configs.get(scanned)!;
     for (const worker of result) {
       if (!configured.some(({ target }) => target === worker.target)) {
-        log({ message: "found unconfigured worker", worker, scanned });
+        console.debug({
+          message: "found unconfigured worker",
+          worker,
+          scanned,
+        });
         configured.push(worker);
       }
     }

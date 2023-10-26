@@ -1,6 +1,5 @@
 import { NS } from "@ns";
 import { ports } from "scripts/constants.js";
-import { createLogger } from "scripts/logging.js";
 import {
   type RunningWorker,
   scanForRunningWorkers,
@@ -30,13 +29,9 @@ const scripts = {
   share: "scripts/share.js",
 };
 
-const logFile = `logs/executor__${new Date().toISOString()}.txt`;
-let log: ReturnType<typeof createLogger>;
-
 export async function main(ns: NS) {
   ns.disableLog("sleep");
   ns.disableLog("scan");
-  log = createLogger(ns, logFile);
   const commandBus = ns.getPortHandle(ports.commandBus);
   const workers = new Map<string, Array<RunningWorker>>();
   // todo: dump JSON.stringify([...workers]) into file in /data/ on exit
@@ -46,9 +41,8 @@ export async function main(ns: NS) {
       await commandBus.nextWrite();
     }
     const commandRaw = commandBus.read() as string;
-    log({ message: "command read", commandRaw });
+    console.debug({ message: "command read", commandRaw });
     updateConfigs(
-      log,
       workers,
       scanForRunningWorkers(ns, {
         basic: scripts.basic /* ignore crack, etc*/,
@@ -58,7 +52,7 @@ export async function main(ns: NS) {
     const commandList = commandRaw.startsWith("[")
       ? (JSON.parse(commandRaw) as string[])
       : [commandRaw];
-    log({ commandList });
+    console.debug({ message: "commands parsed", commandList });
 
     const spawned = [];
     for (const command of commandList) {
@@ -73,7 +67,7 @@ export async function main(ns: NS) {
 
       if (commands.Crack.test(command)) {
         if (ns.exec(scripts.crack, "home", 1, destination)) {
-          log({ message: "crack launched", destination });
+          console.info({ message: "crack launched", destination });
         }
         continue;
       }
@@ -93,7 +87,7 @@ export async function main(ns: NS) {
           ({ target }) => target === newTarget,
         );
         if (existingWorker) {
-          log({
+          console.debug({
             message: "found existing worker for task to allocate",
             destination,
             newTarget,
@@ -124,8 +118,12 @@ export async function main(ns: NS) {
                 gpid,
               });
             } else {
-              log("spawning allocated worker failed");
-              // return;
+              console.info({
+                message: "spawning updated/replacement worker failed",
+                destination,
+                newTarget,
+                threads,
+              });
             }
           }
         } else {
@@ -158,14 +156,14 @@ export async function main(ns: NS) {
         ns.scp(scripts.share, serverName);
         const gpid = ns.exec(scripts.share, serverName, threadCount);
         if (gpid) {
-          log({
+          console.debug({
             message: "spawned share worker",
             serverName,
             threadCount,
             gpid,
           });
         } else {
-          log({
+          console.warn({
             message: "spawning share worker failed",
             serverName,
             threadCount,
@@ -251,12 +249,12 @@ function spawnWorker(
     threads = Math.floor(freeRam / (scriptRam === 0 ? 1 : scriptRam));
   }
   if (threads === 0) {
-    log({ message: "not enough RAM to spawn worker", destination });
+    console.warn({ message: "not enough RAM to spawn worker", destination });
     return 0;
   }
   // const delay = command === "basic" ? Math.ceil(Math.random() * 10_000) : 0;
   const delay = 0;
-  log({
+  console.debug({
     message: "spawning worker",
     command,
     destination,
