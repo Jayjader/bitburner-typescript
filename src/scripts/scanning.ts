@@ -17,7 +17,8 @@ export function getFreeHosts(
 ) {
   return [...hosts]
     .filter(
-      ([, { minPorts, maxRam }]) => minPorts <= availableBusters && maxRam > 0,
+      ([hostname, { minPorts, maxRam }]) =>
+        (hostname === "home" || minPorts <= availableBusters) && maxRam > 0,
     )
     .sort(([, a], [, b]) => b.maxRam - a.maxRam);
 }
