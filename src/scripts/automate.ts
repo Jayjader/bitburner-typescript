@@ -1,8 +1,8 @@
 import { AutocompleteData, NS } from "@ns";
 import {
   getAllocatableRam,
-  getFreeHosts,
-  getTargets,
+  getCrackingTargets,
+  getHackingTargets,
   type ServerAttributes,
   type TaskAllocation,
 } from "/scripts/scanning";
@@ -127,15 +127,9 @@ export async function main(ns: NS) {
 
   // eslint-disable-next-line no-constant-condition
   portBusters = await countAvailablePortOpeners(ns);
-  const targets = getTargets(hosts, ns.getHackingLevel(), portBusters);
   if (parsedFlags.crack) {
     const crackTargets = [];
-    for (const [host] of getFreeHosts(hosts, portBusters)) {
-      if (!ns.hasRootAccess(host)) {
-        crackTargets.push(host);
-      }
-    }
-    for (const [host] of targets) {
+    for (const host of getCrackingTargets(hosts, portBusters)) {
       if (!ns.hasRootAccess(host)) {
         crackTargets.push(host);
       }
@@ -177,6 +171,7 @@ export async function main(ns: NS) {
         ] as [string, ServerAllocation],
     )
     .filter(([, { allocatableRam }]) => allocatableRam > 0);
+  const targets = getHackingTargets(hosts, ns.getHackingLevel(), portBusters);
   if (parsedFlags.allocate) {
     const allocatedTasks = new Map<string, TaskAllocation[]>();
     let nextTarget: [string, ServerAttributes] | undefined;

@@ -22,7 +22,18 @@ export function getFreeHosts(
     )
     .sort(([, a], [, b]) => b.maxRam - a.maxRam);
 }
-export function getTargets(
+export function getCrackingTargets(
+  hosts: Map<string, ServerAttributes>,
+  portOpenerCount: number,
+) {
+  return [...hosts].reduce((accum, [name, { minPorts }]) => {
+    if (minPorts <= portOpenerCount) {
+      accum.push(name);
+    }
+    return accum;
+  }, new Array<string>());
+}
+export function getHackingTargets(
   hosts: Map<string, ServerAttributes>,
   currentLevel: number,
   availableBusters: number,
