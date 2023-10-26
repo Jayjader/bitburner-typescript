@@ -69,9 +69,9 @@ export async function main(ns: NS) {
 
   /*bbbbb
   if (!ns.ps("home").some(({ filename }) => filename === executorScript)) {
-    log("starting executor...");
+    console.debug({ message: "starting executor..." });
     if (ns.exec(executorScript, "home")) {
-      log("executor started");
+      console.debug({ message: "executor started." });
     }
   }
 */

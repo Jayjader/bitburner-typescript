@@ -268,10 +268,8 @@ function spawnWorker(
 }
 
 function killWorker(ns: NS, worker: RunningWorker) {
-  //log({ message: 'killWorker called', worker })
-  log({ message: "killing pid", pid: worker.gpid });
+  console.debug({ message: "killing pid", worker });
   if (ns.kill(worker.gpid)) {
-    log({ message: "worker killed", worker });
-    //worker.gpid = undefined
+    console.debug({ message: "worker killed", worker });
   }
 }
