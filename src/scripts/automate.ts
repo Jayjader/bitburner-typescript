@@ -67,14 +67,12 @@ export async function main(ns: NS) {
   let portBusters = 0;
   const hosts = await mapServers(new Map(), ns);
 
-  /*bbbbb
   if (!ns.ps("home").some(({ filename }) => filename === executorScript)) {
     console.debug({ message: "starting executor..." });
     if (ns.exec(executorScript, "home")) {
       console.debug({ message: "executor started." });
     }
   }
-*/
 
   const debug = () => command(ns, "debug");
   const crack = (target: string) => command(ns, `crack:${target}`);
