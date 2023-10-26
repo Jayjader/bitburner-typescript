@@ -49,12 +49,12 @@ export async function main(ns: NS) {
   ) {
     ns.tprintf("Run crack or allocate commands on automated targets");
     ns.tprintf(
-      `USAGE: run ${ns.getScriptName()} --${flags[0][0]} <true|false> --${
+      `USAGE: run ${ns.getScriptName()} {--${flags[0][0]}} {--${
         flags[1][0]
-      } <true|false> {--${flags[2][0]}}`,
+      }} {--${flags[2][0]}} {--${flags[3][0]}}`,
     );
     ns.tprintf("Example:");
-    ns.tprintf(`> run ${ns.getScriptName()} --${flags[0][0]} true`);
+    ns.tprintf(`> run ${ns.getScriptName()} --${flags[0][0]} `);
     return;
   }
   ns.disableLog("sleep");
@@ -67,7 +67,10 @@ export async function main(ns: NS) {
   let portBusters = 0;
   const hosts = await mapServers(new Map(), ns);
 
-  if (!ns.ps("home").some(({ filename }) => filename === executorScript)) {
+  if (
+    !parsedFlags["dry-run"] &&
+    !ns.ps("home").some(({ filename }) => filename === executorScript)
+  ) {
     console.debug({ message: "starting executor..." });
     if (ns.exec(executorScript, "home")) {
       console.debug({ message: "executor started." });
