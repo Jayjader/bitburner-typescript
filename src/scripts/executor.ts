@@ -154,8 +154,15 @@ export async function main(ns: NS) {
         const [, serverName, threads] = commands.Share.exec(command)!;
         const threadCount = parseInt(threads, 10);
         ns.scp(scripts.share, serverName);
-        const gpid = ns.exec(scripts.share, serverName, threadCount);
+        const gpid = spawnWorker(ns, "share", serverName, "", threadCount);
         if (gpid) {
+          spawned.push({
+            command: "share",
+            destination: serverName,
+            target: "",
+            threads: threadCount,
+            gpid,
+          });
           console.debug({
             message: "spawned share worker",
             serverName,
