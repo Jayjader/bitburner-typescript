@@ -5,7 +5,5 @@ export function createLogger(ns: NS, _logFile: string) {
       typeof message === "string" ? message : JSON.stringify(message)
     }`;
     console.log(messageString);
-    // ns.tprintf(messageString)
-    // ns.write(logFile, messageString, 'a')
   };
 }

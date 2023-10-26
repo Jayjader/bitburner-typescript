@@ -72,11 +72,9 @@ export async function main(ns: NS) {
       const [, destination] = destination_matcher.exec(command)!;
 
       if (commands.Crack.test(command)) {
-        // await ns.sleep(100);
         if (ns.exec(scripts.crack, "home", 1, destination)) {
           log({ message: "crack launched", destination });
         }
-        // await ns.sleep(100);
         continue;
       }
 
@@ -107,7 +105,6 @@ export async function main(ns: NS) {
             existingWorker.threads !== threads
           ) {
             killWorker(ns, existingWorker);
-            // await ns.sleep(300);
             const gpid = spawnWorker(
               ns,
               "basic",
@@ -115,7 +112,6 @@ export async function main(ns: NS) {
               newTarget,
               threads,
             );
-            // await ns.sleep(250);
             if (gpid) {
               existingWorker.gpid = gpid;
               existingWorker.threads = threads;
@@ -140,7 +136,6 @@ export async function main(ns: NS) {
             newTarget,
             threads,
           );
-          // await ns.sleep(250);
           if (gpid) {
             workersAtDestination.push({
               command: "basic",
