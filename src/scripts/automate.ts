@@ -28,8 +28,8 @@ const flags: Parameters<AutocompleteData["flags"]>[0] = [
   ["crack", false],
   ["allocate", false],
   ["dry-run", false],
-  ["allow-home", false],
-  ["allow-share", false],
+  ["forbid-home", false],
+  ["share", false],
 ];
 
 export function autocomplete(data: AutocompleteData, args: string[]) {
@@ -44,17 +44,31 @@ export function autocomplete(data: AutocompleteData, args: string[]) {
 }
 export async function main(ns: NS) {
   const parsedFlags = ns.flags(flags);
-  if (
-    !(parsedFlags.crack || parsedFlags.allocate || parsedFlags["allow-share"])
-  ) {
+  if (!(parsedFlags.crack || parsedFlags.allocate || parsedFlags.share)) {
     ns.tprintf("Run crack or allocate commands on automated targets");
     ns.tprintf(
       `USAGE: run ${ns.getScriptName()} {--${flags[0][0]}} {--${
         flags[1][0]
-      }} {--${flags[2][0]}} {--${flags[3][0]}}`,
+      }} {--${flags[2][0]}} {--${flags[3][0]}} {--${flags[4][0]}}`,
     );
-    ns.tprintf("Example:");
-    ns.tprintf(`> run ${ns.getScriptName()} --${flags[0][0]} `);
+    ns.tprintf("EXAMPLES:");
+    ns.tprintf(
+      `> run ${ns.getScriptName()} --${
+        flags[0][0]
+      } // only crack servers that can be`,
+    );
+    ns.tprintf(
+      `> run ${ns.getScriptName()} --${flags[1][0]} --${
+        flags[2][0]
+      } // calculate allocation of basic hacking scripts but only print it to the terminal`,
+    );
+    ns.tprintf(
+      `> run ${ns.getScriptName()} --${flags[0][0]} --${flags[1][0]} --${
+        flags[3][0]
+      } --${
+        flags[4][0]
+      } // do everything: find servers to crack, allocate usable server RAM for hacking, allocate remaining RAM for sharing`,
+    );
     return;
   }
   ns.disableLog("sleep");
@@ -107,7 +121,7 @@ export async function main(ns: NS) {
         hackNeeded,
         growthNeeded,
         weakenThreadsNeeded(hackNeeded, growthNeeded),
-      ),
+      ) / 2,
     );
   };
 
@@ -144,7 +158,7 @@ export async function main(ns: NS) {
   const availableHosts = [...hosts]
     .filter(
       ([name]) =>
-        (parsedFlags["allow-home"] || name !== "home") &&
+        (!parsedFlags["forbid-home"] || name !== "home") &&
         ns.hasRootAccess(name),
     )
     .map(
@@ -279,14 +293,14 @@ export async function main(ns: NS) {
       }
     }
   }
-  if (parsedFlags["allow-share"]) {
+  if (parsedFlags.share) {
     const shareScriptRamCost = 4;
     const toShare = availableHosts.filter(
       ([, { allocatableRam }]) => allocatableRam > shareScriptRamCost,
     );
     const shareCommands = [];
     for (const [serverName, allocation] of toShare) {
-      if (!parsedFlags["allow-home"] && serverName === "home") {
+      if (parsedFlags["forbid-home"] && serverName === "home") {
         continue;
       }
       const threads = Math.floor(
