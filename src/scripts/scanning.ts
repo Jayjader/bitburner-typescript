@@ -32,7 +32,7 @@ export function getTargets(
       ([name, { minPorts, minLevel, maxMoney, growthFactor }]) =>
         name !== "home" &&
         minPorts <= availableBusters &&
-        minLevel < currentLevel / 2 &&
+        minLevel <= Math.ceil(currentLevel / 2) &&
         maxMoney > 0 &&
         growthFactor > 0,
     )
@@ -129,7 +129,7 @@ export function updateConfigs(
           ({ target }) => !result.some((r) => r.target === target),
         )) >= 0
       ) {
-        configured.splice(to_remove, -1);
+        configured.splice(to_remove, 1);
       }
       let to_replace: RunningWorker;
       while (
