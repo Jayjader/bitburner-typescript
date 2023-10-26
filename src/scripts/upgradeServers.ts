@@ -14,13 +14,14 @@ export async function main(ns: NS) {
   }
   for (const serverName of ns.getPurchasedServers()) {
     if (ns.getServerMaxRam(serverName) < size) {
-      ns.printf(
-        `${serverName} upgrade cost: ${ns.getPurchasedServerUpgradeCost(
-          serverName,
-          size,
-        )}`,
-      );
+      const upgradeCost = ns.getPurchasedServerUpgradeCost(serverName, size);
+      ns.printf(`${serverName} upgrade cost: ${upgradeCost}`);
       while (!ns.upgradePurchasedServer(serverName, size)) {
+        ns.printf(
+          `not enough money; need ${upgradeCost}, missing ${
+            upgradeCost - ns.getServerMoneyAvailable("home")
+          }`,
+        );
         await ns.sleep(1_000);
       }
     }
