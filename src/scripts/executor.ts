@@ -42,8 +42,10 @@ export async function main(ns: NS) {
   // todo: dump JSON.stringify([...workers]) into file in /data/ on exit
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    await commandBus.nextWrite();
-    const commandRaw = ns.readPort(ports.commandBus) as string;
+    if (commandBus.peek() === "NULL PORT DATA") {
+      await commandBus.nextWrite();
+    }
+    const commandRaw = commandBus.read() as string;
     log({ message: "command read", commandRaw });
     updateConfigs(
       log,
@@ -51,15 +53,7 @@ export async function main(ns: NS) {
       scanForRunningWorkers(ns, {
         basic: scripts.basic /* ignore crack, etc*/,
       }),
-    ); ///cecebbbb
-
-    // pop command off of queue. it is already stored in commandRaw so we can just drop the return value here
-    ns.readPort(ports.commandBus);
-
-    if (commandRaw.startsWith("debug")) {
-      if (commandRaw === "debug") ns.tprintf(JSON.stringify([...workers]));
-      continue;
-    }
+    );
 
     const commandList = commandRaw.startsWith("[")
       ? (JSON.parse(commandRaw) as string[])
@@ -68,6 +62,10 @@ export async function main(ns: NS) {
 
     const spawned = [];
     for (const command of commandList) {
+      if (command.startsWith("debug")) {
+        if (command === "debug") ns.tprintf(JSON.stringify([...workers]));
+        continue;
+      }
       if (!destination_matcher.test(command)) {
         continue;
       }
