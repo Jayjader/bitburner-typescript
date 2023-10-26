@@ -23,12 +23,16 @@ export async function main(ns: NS) {
     ns.tprintf("path not found");
     return;
   }
+  const commandString = `${pathToTarget
+    .map((server) => `connect ${server}`)
+    .join("; ")}; backdoor`;
+  await navigator.clipboard.writeText(commandString);
   ns.tprintf(
-    "command string to run: %s; backdoor",
-    pathToTarget.map((server) => `connect ${server}`).join("; "),
+    "command string to run (should also already be in clipboard):\n %s",
+    commandString,
   );
 }
 
-export function autocomplete(data: AutocompleteData, args: string[]) {
+export function autocomplete(data: AutocompleteData) {
   return data.servers;
 }
