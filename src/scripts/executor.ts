@@ -37,7 +37,7 @@ export async function main(ns: NS) {
   // todo: dump JSON.stringify([...workers]) into file in /data/ on exit
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    if (commandBus.peek() === "NULL PORT DATA") {
+    while (commandBus.empty()) {
       await commandBus.nextWrite();
     }
     const commandRaw = commandBus.read() as string;
@@ -92,7 +92,7 @@ export async function main(ns: NS) {
             destination,
             newTarget,
             threads,
-            existingWorker,
+            worker: { ...existingWorker },
           });
           if (
             existingWorker.command !== "basic" ||
@@ -176,7 +176,6 @@ export async function main(ns: NS) {
             threadCount,
           });
         }
-        // workersAtDestination.push() <-- needed ? the following command will trigger a scan which might pick up the share scripts
       } else if (commands.Grow.test(command)) {
         // todo
       } else if (commands.Weaken.test(command)) {
