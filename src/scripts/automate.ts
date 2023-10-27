@@ -343,7 +343,6 @@ export async function main(ns: NS) {
     for (const [server, tasks] of allocatedTasks) {
       for (const { target, threads } of tasks) {
         commandArray.push(`allocate:${server}:${target}:${threads}`);
-        // await commands.allocate(server)(target)(threads);
       }
     }
     if (commandArray.length > 0) {
