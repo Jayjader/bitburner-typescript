@@ -170,6 +170,8 @@ export async function main(ns: NS) {
       (a.growthFactor * a.maxMoney) / a.minSecurity,
   );
   if (parsedFlags.batch) {
+    // TODO: c.f. Communication: Making your first proto-batcher at https://darktechnomancer.github.io/
+    // tl;dr: it's time to attempt batches against the same target staggered over time
     const targets = getHackingTargets(
       hosts,
       ns.getHackingLevel(),
