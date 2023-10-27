@@ -47,9 +47,9 @@ export async function main(ns: NS) {
   if (!(parsedFlags.crack || parsedFlags.allocate || parsedFlags.share)) {
     ns.tprintf("Run crack or allocate commands on automated targets");
     ns.tprintf(
-      `USAGE: run ${ns.getScriptName()} {--${flags[0][0]}} {--${
-        flags[1][0]
-      }} {--${flags[2][0]}} {--${flags[3][0]}} {--${flags[4][0]}}`,
+      `USAGE: run ${ns.getScriptName()} ${flags
+        .map(([flagName]) => `{--${flagName}}`)
+        .join(" ")}`,
     );
     ns.tprintf("EXAMPLES:");
     ns.tprintf(
@@ -67,7 +67,7 @@ export async function main(ns: NS) {
         flags[3][0]
       } --${
         flags[4][0]
-      } // do everything: find servers to crack, allocate usable server RAM for hacking, allocate remaining RAM for sharing`,
+      } // do several things: find servers to crack, allocate usable server RAM for hacking, and allocate remaining RAM for sharing; allocate no RAM from home`,
     );
     return;
   }
