@@ -275,7 +275,7 @@ export function allocateBatches(
       );
       if (!bestFit) {
         console.debug({
-          mesasge: "batch allocation failed to find fit at all",
+          message: "batch allocation failed to find fit at all",
           target,
           command,
           threads,
