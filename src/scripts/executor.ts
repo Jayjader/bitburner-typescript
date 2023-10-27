@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { ports } from "scripts/constants.js";
+import { ports } from "/scripts/constants.js";
 import {
   type RunningWorker,
   scanForRunningWorkers,
