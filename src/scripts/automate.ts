@@ -183,9 +183,7 @@ export async function main(ns: NS) {
       targets,
       true,
     );
-    const batchCommands = [];
 
-    /*
     const ramCosts = Object.fromEntries(
       Object.entries(scripts).map(([key, filename]) => [
         key,
@@ -193,37 +191,50 @@ export async function main(ns: NS) {
       ]),
     );
     const perServer = new Map();
-*/
+    const perTarget = new Map();
     for (const [hostname, allocations] of batchAllocations) {
-      /*
       const stuff = {
         ramAllocated: 0,
-        tasks: [] as Record<"target" | "command", string>[],
+        tasks: [],
       };
-*/
       for (const { target, command, threads, endAt, runFor } of allocations) {
-        /*
+        if (!perTarget.has(target)) {
+          perTarget.set(target, []);
+        }
+        perTarget
+          .get(target)!
+          .push({ hostname, command, threads, endAt, runFor });
         stuff.ramAllocated += ramCosts[command] * threads;
-        stuff.tasks.push({ target, command });
-*/
-        batchCommands.push(
-          `batch:${hostname}:${target}:${command}:${threads}:${endAt}:${runFor}`,
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        stuff.tasks.push({ target, command, threads });
+        // batchCommands.push(
+        //   `batch:${hostname}:${target}:${command}:${threads}:${endAt}:${runFor}`,
+        // );
+      }
+      perServer.set(hostname, stuff);
+    }
+    console.debug(perTarget);
+    if (perTarget.size > 0) {
+      if (parsedFlags["dry-run"]) {
+        ns.tprintf(`${JSON.stringify([...perTarget])}`);
+      } else {
+        await commandList(
+          ns,
+          [...perTarget].map(
+            ([target, batches]) => `batch:${target}:${JSON.stringify(batches)}`,
+          ),
         );
       }
-      /*
-      perServer.set(hostname, stuff);
-*/
     }
-    /*
-    console.debug(perServer);
-*/
-    if (batchCommands.length > 0) {
-      if (parsedFlags["dry-run"]) {
-        ns.tprintf(`Commands: ${batchCommands.join(",")}`);
-      } else {
-        await commandList(ns, batchCommands);
-      }
-    }
+    // console.dir(perServer);
+    // if (batchCommands.length > 0) {
+    //   if (parsedFlags["dry-run"]) {
+    //     ns.tprintf(`Commands: ${batchCommands.join(",")}`);
+    //   } else {
+    //     await commandList(ns, batchCommands);
+    //   }
+    // }
   }
   if (parsedFlags.allocate) {
     const allocFuncs = allocationFuncs(ns);
