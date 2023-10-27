@@ -29,16 +29,24 @@ export async function main(ns: NS) {
     const moneyToHackRatio = 0.2;
     const hackThreadsWanted = Math.max(
       1,
-      Math.ceil(moneyToHackRatio / ns.hackAnalyze(target)),
+      Math.floor(moneyToHackRatio / ns.hackAnalyze(target)),
     );
     const growThreadsNeeded = Math.max(
       1,
       Math.ceil(ns.growthAnalyze(target, 1 / moneyToHackRatio)),
     );
-    const weaken1ThreadsNeeded = Math.max(1, Math.ceil(hackThreadsWanted / 25));
+    const weaken1ThreadsNeeded = Math.max(
+      1,
+      Math.ceil(
+        ns.hackAnalyzeSecurity(hackThreadsWanted, target) / ns.weakenAnalyze(1),
+      ),
+    );
     const weaken2ThreadsNeeded = Math.max(
       1,
-      Math.ceil(growThreadsNeeded / 12.5),
+      Math.ceil(
+        ns.growthAnalyzeSecurity(growThreadsNeeded, target) /
+          ns.weakenAnalyze(1),
+      ),
     );
 
     const startTime =
