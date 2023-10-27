@@ -6,7 +6,7 @@ import {
   type ServerAttributes,
   type TaskAllocation,
 } from "/scripts/scanning";
-import { ports } from "scripts/constants";
+import { ports } from "/scripts/constants";
 
 const executorScript = "scripts/executor.js";
 const scripts = { basic: "scripts/simple-grow-weaken-hack.js" };
