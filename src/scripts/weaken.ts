@@ -1,16 +1,11 @@
 import { AutocompleteData, NS } from "@ns";
-import {
-  autocomplete as batchAutoComplete,
-  flagSchema,
-} from "/scripts/batching";
+import { autocomplete as batchAutoComplete, prepare } from "/scripts/batching";
 
 export async function main(ns: NS) {
-  const flags = ns.flags(flagSchema);
-  const delay = parseInt(flags.delay as string, 10);
-  const target = flags.target as string;
-  // ns.tail();
+  const { target, delay } = prepare(ns);
   await ns.weaken(target, { additionalMsec: delay });
-  console.log({ message: "weaken finished", target, delay });
+  const end = performance.now();
+  console.log({ message: "weaken finished", target, delay, end });
 }
 export function autocomplete(data: AutocompleteData) {
   return batchAutoComplete(data);
