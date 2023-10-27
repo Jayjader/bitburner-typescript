@@ -1,21 +1,41 @@
 import { AutocompleteData, NS } from "@ns";
 import {
+  allocateBatches,
   getAllocatableRam,
   getCrackingTargets,
   getHackingTargets,
+  scanServerForRunningWorkers,
   type ServerAttributes,
   type TaskAllocation,
 } from "/scripts/scanning";
 import { ports } from "/scripts/constants";
+import { scripts as batchingScripts } from "/scripts/batching";
 
 const executorScript = "scripts/executor.js";
-const scripts = { basic: "scripts/simple-grow-weaken-hack.js" };
-async function command(ns: NS, commandString: string) {
-  console.debug({ message: "writing command", commandString });
-  while (!ns.tryWritePort(ports.commandBus, commandString)) {
-    await ns.sleep(550);
+const scripts = {
+  basic: "scripts/simple-grow-weaken-hack.js",
+  ...batchingScripts,
+};
+const flagSchema: Parameters<AutocompleteData["flags"]>[0] = [
+  ["crack", false],
+  ["allocate", false],
+  ["dry-run", false],
+  ["forbid-home", false],
+  ["share", false],
+  ["batch", false],
+];
+
+export function autocomplete(data: AutocompleteData, args: string[]) {
+  const parsedFlags = data.flags(flagSchema);
+  const remainingFlags = flagSchema
+    .map(([name]) => name)
+    .filter((name) => parsedFlags[name] === undefined);
+  if (args.length && args[args.length - 1].startsWith("--")) {
+    return remainingFlags;
   }
+  return remainingFlags.map((name) => `--${name}`);
 }
+
 async function commandList(ns: NS, commands: string[]) {
   console.debug({ message: "writing command list", commands });
   const stringified = JSON.stringify(commands);
@@ -24,82 +44,8 @@ async function commandList(ns: NS, commands: string[]) {
     await ns.sleep(550);
   }
 }
-const flags: Parameters<AutocompleteData["flags"]>[0] = [
-  ["crack", false],
-  ["allocate", false],
-  ["dry-run", false],
-  ["forbid-home", false],
-  ["share", false],
-];
 
-export function autocomplete(data: AutocompleteData, args: string[]) {
-  const parsedFlags = data.flags(flags);
-  const remainingFlags = flags
-    .map(([name]) => name)
-    .filter((name) => parsedFlags[name] === undefined);
-  if (args.length && args[args.length - 1].startsWith("--")) {
-    return remainingFlags;
-  }
-  return remainingFlags.map((name) => `--${name}`);
-}
-export async function main(ns: NS) {
-  const parsedFlags = ns.flags(flags);
-  if (!(parsedFlags.crack || parsedFlags.allocate || parsedFlags.share)) {
-    ns.tprintf("Run crack or allocate commands on automated targets");
-    ns.tprintf(
-      `USAGE: run ${ns.getScriptName()} ${flags
-        .map(([flagName]) => `{--${flagName}}`)
-        .join(" ")}`,
-    );
-    ns.tprintf("EXAMPLES:");
-    ns.tprintf(
-      `> run ${ns.getScriptName()} --${
-        flags[0][0]
-      } // only crack servers that can be`,
-    );
-    ns.tprintf(
-      `> run ${ns.getScriptName()} --${flags[1][0]} --${
-        flags[2][0]
-      } // calculate allocation of basic hacking scripts but only print it to the terminal`,
-    );
-    ns.tprintf(
-      `> run ${ns.getScriptName()} --${flags[0][0]} --${flags[1][0]} --${
-        flags[3][0]
-      } --${
-        flags[4][0]
-      } // do several things: find servers to crack, allocate usable server RAM for hacking, and allocate remaining RAM for sharing; allocate no RAM from home`,
-    );
-    return;
-  }
-  ns.disableLog("sleep");
-  ns.disableLog("scan");
-  const getAllocatableRamForServer = (
-    serverName: string,
-    maxRam: number,
-    ramCostPerThread: number,
-  ) => getAllocatableRam(ns, scripts, serverName, maxRam, ramCostPerThread);
-  let portBusters = 0;
-  const hosts = await mapServers(new Map(), ns);
-
-  if (
-    !parsedFlags["dry-run"] &&
-    !ns.ps("home").some(({ filename }) => filename === executorScript)
-  ) {
-    console.debug({ message: "starting executor..." });
-    if (ns.exec(executorScript, "home")) {
-      console.debug({ message: "executor started." });
-    }
-  }
-
-  const debug = () => command(ns, "debug");
-  const crack = (target: string) => command(ns, `crack:${target}`);
-  const target = (from_: string) => (to_: string) =>
-    command(ns, `target:${from_}:${to_}`);
-  const basic = (from_: string) => command(ns, `basic:${from_}`);
-  const allocate = (from_: string) => (to_: string) => (threads: number) =>
-    command(ns, `allocate:${from_}:${to_}:${threads}`);
-  const commands = { debug, crack, target, basic, allocate };
-
+const allocationFuncs = (ns: NS) => {
   const basicRamCost = ns.getScriptRam("scripts/simple-grow-weaken-hack.js");
   const hackThreadsNeeded = (serverName: string) =>
     1 / Math.max(ns.hackAnalyze(serverName), 1);
@@ -124,6 +70,58 @@ export async function main(ns: NS) {
       ) / 2,
     );
   };
+  return { basicRamCost, minThreadCount };
+};
+export async function main(ns: NS) {
+  const parsedFlags = ns.flags(flagSchema);
+  if (
+    !(
+      parsedFlags.crack ||
+      parsedFlags.allocate ||
+      parsedFlags.share ||
+      parsedFlags.batch
+    )
+  ) {
+    ns.tprintf("Run crack or allocate commands on automated targets");
+    ns.tprintf(
+      `USAGE: run ${ns.getScriptName()} ${flagSchema
+        .map(([flagName]) => `{--${flagName}}`)
+        .join(" ")}`,
+    );
+    ns.tprintf("EXAMPLES:");
+    ns.tprintf(
+      `> run ${ns.getScriptName()} --${
+        flagSchema[0][0]
+      } // only crack servers that can be`,
+    );
+    ns.tprintf(
+      `> run ${ns.getScriptName()} --${flagSchema[1][0]} --${
+        flagSchema[2][0]
+      } // calculate allocation of basic hacking scripts but only print it to the terminal`,
+    );
+    ns.tprintf(
+      `> run ${ns.getScriptName()} --${flagSchema[0][0]} --${
+        flagSchema[1][0]
+      } --${flagSchema[3][0]} --${
+        flagSchema[4][0]
+      } // do several things: find servers to crack, allocate usable server RAM for hacking, and allocate remaining RAM for sharing; allocate no RAM from home`,
+    );
+    return;
+  }
+  ns.disableLog("sleep");
+  ns.disableLog("scan");
+  let portBusters = 0;
+  const hosts = await mapServers(new Map(), ns);
+
+  if (
+    !parsedFlags["dry-run"] &&
+    !ns.ps("home").some(({ filename }) => filename === executorScript)
+  ) {
+    console.debug({ message: "starting executor..." });
+    if (ns.exec(executorScript, "home")) {
+      console.debug({ message: "executor started." });
+    }
+  }
 
   // eslint-disable-next-line no-constant-condition
   portBusters = await countAvailablePortOpeners(ns);
@@ -149,37 +147,94 @@ export async function main(ns: NS) {
     allocated: boolean;
     allocatableRam: number;
   };
-  const availableHosts = [...hosts]
-    .filter(
-      ([name]) =>
-        (!parsedFlags["forbid-home"] || name !== "home") &&
-        ns.hasRootAccess(name),
-    )
-    .map(
-      ([name, attributes]) =>
-        [
-          name,
-          {
-            ...attributes,
-            allocated: false,
-            allocatableRam: getAllocatableRamForServer(
-              name,
-              attributes.maxRam,
-              basicRamCost,
-            ),
-          },
-        ] as [string, ServerAllocation],
-    )
-    .filter(([, { allocatableRam }]) => allocatableRam > 0);
-  const targets = getHackingTargets(hosts, ns.getHackingLevel(), portBusters);
+  const availableHosts = [...hosts].reduce((accum, [name, attributes]) => {
+    if (!parsedFlags["forbid-home"] || name !== "home") {
+      const allocation = {
+        ...attributes,
+        allocated: false,
+        allocatableRam: getAllocatableRam(ns, name, attributes.maxRam),
+      };
+      if (allocation.allocatableRam > 0) {
+        accum.push([name, allocation]);
+      }
+    }
+    return accum;
+  }, new Array<[string, ServerAllocation]>());
+  const targets = getHackingTargets(
+    hosts,
+    ns.getHackingLevel(),
+    portBusters,
+  ).sort(
+    ([, a], [, b]) =>
+      (b.growthFactor * b.maxMoney) / b.minSecurity -
+      (a.growthFactor * a.maxMoney) / a.minSecurity,
+  );
+  if (parsedFlags.batch) {
+    const targets = getHackingTargets(
+      hosts,
+      ns.getHackingLevel(),
+      portBusters,
+    ).map(([name]) => name);
+    const batchAllocations = allocateBatches(
+      ns,
+      scripts,
+      hosts,
+      !parsedFlags["forbid-home"],
+      targets,
+      true,
+    );
+    const batchCommands = [];
+
+    /*
+    const ramCosts = Object.fromEntries(
+      Object.entries(scripts).map(([key, filename]) => [
+        key,
+        ns.getScriptRam(filename),
+      ]),
+    );
+    const perServer = new Map();
+*/
+    for (const [hostname, allocations] of batchAllocations) {
+      /*
+      const stuff = {
+        ramAllocated: 0,
+        tasks: [] as Record<"target" | "command", string>[],
+      };
+*/
+      for (const { target, command, threads, endAt, runFor } of allocations) {
+        /*
+        stuff.ramAllocated += ramCosts[command] * threads;
+        stuff.tasks.push({ target, command });
+*/
+        batchCommands.push(
+          `batch:${hostname}:${target}:${command}:${threads}:${endAt}:${runFor}`,
+        );
+      }
+      /*
+      perServer.set(hostname, stuff);
+*/
+    }
+    /*
+    console.debug(perServer);
+*/
+    if (batchCommands.length > 0) {
+      if (parsedFlags["dry-run"]) {
+        ns.tprintf(`Commands: ${batchCommands.join(",")}`);
+      } else {
+        await commandList(ns, batchCommands);
+      }
+    }
+  }
   if (parsedFlags.allocate) {
+    const allocFuncs = allocationFuncs(ns);
+
     const allocatedTasks = new Map<string, TaskAllocation[]>();
     let nextTarget: [string, ServerAttributes] | undefined;
     // eslint-disable-next-line no-cond-assign
     allocateTargets: while ((nextTarget = targets.shift())) {
       const [targetName] = nextTarget;
-      const threadsNeeded = minThreadCount(nextTarget);
-      const ramNeeded = threadsNeeded * basicRamCost;
+      const threadsNeeded = allocFuncs.minThreadCount(nextTarget);
+      const ramNeeded = threadsNeeded * allocFuncs.basicRamCost;
       console.debug({
         message: "calculated cost to hack target",
         targetName,
@@ -188,8 +243,15 @@ export async function main(ns: NS) {
       });
       const smallestAllocatable = availableHosts
         .filter(
-          ([, { allocated, allocatableRam }]) =>
-            !allocated && allocatableRam >= ramNeeded,
+          ([serverName, { allocated, allocatableRam }]) =>
+            !allocated &&
+            allocatableRam +
+              scanServerForRunningWorkers(ns, scripts, serverName).reduce(
+                (ramUsedByWorkers, { threads }) =>
+                  ramUsedByWorkers + threads * allocFuncs.basicRamCost,
+                0,
+              ) >=
+              ramNeeded,
         )
         .sort(([, a], [, b]) => a.allocatableRam - b.allocatableRam)
         .pop();
@@ -198,7 +260,8 @@ export async function main(ns: NS) {
         const task = { target: targetName, threads: threadsNeeded };
         allocatedTasks.set(serverName, [task]);
         serverAllocation.allocated = true;
-        serverAllocation.allocatableRam -= threadsNeeded * basicRamCost;
+        serverAllocation.allocatableRam -=
+          threadsNeeded * allocFuncs.basicRamCost;
         console.debug({
           message: "target covered in single allocation",
           server: [serverName, serverAllocation],
@@ -210,7 +273,7 @@ export async function main(ns: NS) {
         message: "unable to cover target in single allocation",
         targetName,
         threadsNeeded,
-        basicRamCost,
+        ramCost: allocFuncs.basicRamCost,
       });
       // no valid smallest unallocated => look at the allocated
       // no unallocated => look at the allocated
@@ -227,7 +290,10 @@ export async function main(ns: NS) {
           ),
         });
         const canAllocateMost = availableHosts
-          .filter(([, { allocatableRam }]) => allocatableRam >= basicRamCost)
+          .filter(
+            ([, { allocatableRam }]) =>
+              allocatableRam >= allocFuncs.basicRamCost,
+          )
           .sort(
             ([, aAllocation], [, bAllocation]) =>
               aAllocation.allocatableRam - bAllocation.allocatableRam,
@@ -243,10 +309,10 @@ export async function main(ns: NS) {
         }
         const [serverName, serverAllocation] = canAllocateMost;
         const threadsAvailable = Math.floor(
-          serverAllocation.allocatableRam / basicRamCost,
+          serverAllocation.allocatableRam / allocFuncs.basicRamCost,
         );
         const threads = Math.min(threadsAvailable, threadsLeft);
-        const taskAllocationRamCost = threads * basicRamCost;
+        const taskAllocationRamCost = threads * allocFuncs.basicRamCost;
         const task = { target: targetName, threads };
         console.debug({
           message: "calculated threads to allocate for target on server",
@@ -254,7 +320,7 @@ export async function main(ns: NS) {
           serverAllocation,
           threadsAvailable,
           task,
-          basicRamCost,
+          ramCost: allocFuncs.basicRamCost,
           threadsLeft,
         });
         if (!allocatedTasks.has(serverName)) {

@@ -38,46 +38,24 @@ export function getHackingTargets(
   currentLevel: number,
   availableBusters: number,
 ) {
-  return [...hosts]
-    .filter(
-      ([name, { minPorts, minLevel, maxMoney, growthFactor }]) =>
-        name !== "home" &&
-        minPorts <= availableBusters &&
-        minLevel <= Math.ceil(currentLevel / 2) &&
-        maxMoney > 0 &&
-        growthFactor > 0,
-    )
-    .sort(
-      ([, a], [, b]) =>
-        (b.growthFactor * b.maxMoney) / b.minSecurity -
-        (a.growthFactor * a.maxMoney) / a.minSecurity,
-    );
+  return [...hosts].filter(
+    ([name, { minPorts, minLevel, maxMoney, growthFactor }]) =>
+      name !== "home" &&
+      minPorts <= availableBusters &&
+      minLevel <= Math.ceil(currentLevel / 2) &&
+      maxMoney > 0 &&
+      growthFactor > 0,
+  );
 }
 
-export function getAllocatableRam(
-  ns: NS,
-  scripts: Record<string, string>,
-  serverName: string,
-  maxRam: number,
-  workerScriptRamCost: number,
-) {
+export function getAllocatableRam(ns: NS, serverName: string, maxRam: number) {
   const usedRam = ns.getServerUsedRam(serverName);
-  const workerUsedRam = scanServerForRunningWorkers(
-    ns,
-    scripts,
-    serverName,
-  ).reduce(
-    (ramUsedByWorkers, { threads }) =>
-      ramUsedByWorkers + threads * workerScriptRamCost,
-    0,
-  );
-  const result = maxRam - usedRam + workerUsedRam;
+  const result = maxRam - usedRam;
   console.debug({
-    message: "calculated allocatable ram",
+    message: "calculated free ram",
     serverName,
     maxRam,
     usedRam,
-    workerUsedRam,
     result,
   });
   if (serverName === "home") {
@@ -182,4 +160,165 @@ export function updateConfigs(
       }
     }
   }
+}
+
+export type ServerAllocation = ServerAttributes & {
+  allocated: boolean;
+  allocatableRam: number;
+};
+export function allocateBatches(
+  ns: NS,
+  scripts: Record<string, string>,
+  hosts: Map<string, ServerAttributes>,
+  allowHome: boolean,
+  targets: string[],
+  hack = false,
+  startDelay = 1_000,
+  delay = 5,
+) {
+  const ramCosts: Record<keyof typeof scripts, number> = Object.fromEntries(
+    Object.entries(scripts).map(([key, filename]) => [
+      key,
+      ns.getScriptRam(filename),
+    ]),
+  );
+  // Gather up-to-date host information
+  const availableHosts: Array<[string, ServerAllocation]> = [];
+  for (const [host, attributes] of hosts) {
+    if ((allowHome || host !== "home") && ns.hasRootAccess(host)) {
+      const allocatableRam = attributes.maxRam - ns.getServerUsedRam(host);
+      if (allocatableRam > 0) {
+        availableHosts.push([
+          host,
+          { ...attributes, allocated: false, allocatableRam },
+        ] as [string, ServerAllocation]);
+      }
+    }
+  }
+
+  // Calculate batch sizes for target list
+  type BatchTask = {
+    command: keyof typeof scripts;
+    endAt: number;
+    runFor: number;
+    threads: number;
+  };
+  type Batch = { target: string; tasks: BatchTask[] };
+  const batches: Batch[] = [];
+  for (const target of targets) {
+    const growDuration = ns.getGrowTime(target);
+    const weakenDuration = ns.getWeakenTime(target);
+    const hackDuration = ns.getHackTime(target);
+    const moneyToHackRatio = 0.2;
+    const hackThreadsWanted = Math.max(
+      1,
+      Math.ceil(moneyToHackRatio / ns.hackAnalyze(target)),
+    );
+    const growThreadsNeeded = Math.max(
+      1,
+      Math.ceil(ns.growthAnalyze(target, 1 / moneyToHackRatio)),
+    );
+    const weaken1ThreadsNeeded = Math.max(1, Math.ceil(hackThreadsWanted / 25));
+    const weaken2ThreadsNeeded = Math.max(
+      1,
+      Math.ceil(growThreadsNeeded / 12.5),
+    );
+
+    const startTime = Math.floor(performance.now()) + startDelay;
+    const endTime = startTime + weakenDuration + 2 * delay;
+    batches.push({
+      target,
+      tasks: [
+        {
+          command: "weaken",
+          endAt: endTime - 2 * delay,
+          runFor: weakenDuration,
+          threads: weaken1ThreadsNeeded,
+        },
+        {
+          command: "weaken",
+          endAt: endTime,
+          runFor: weakenDuration,
+          threads: weaken2ThreadsNeeded,
+        },
+        {
+          command: "grow",
+          endAt: endTime - delay,
+          runFor: growDuration,
+          threads: growThreadsNeeded,
+        },
+        ...(hack
+          ? [
+              {
+                command: "hack",
+                endAt: endTime - 3 * delay,
+                runFor: hackDuration,
+                threads: hackThreadsWanted,
+              },
+            ]
+          : []),
+      ],
+    });
+  }
+
+  // allocate batches according to available host ram
+  type BatchAllocation = { target: string } & BatchTask;
+  const batchAllocations = new Map<string, BatchAllocation[]>();
+  for (const { target, tasks } of batches) {
+    const batchAssignments = [];
+    // check that we can allocate all tasks for a before _actually_ allocating it
+    for (const { command, threads, endAt, runFor } of tasks) {
+      // find server that can hold entire task
+      const bestFit = availableHosts.find(
+        ([, allocation]) =>
+          allocation.allocatableRam >= ramCosts[command] * threads,
+      );
+      if (!bestFit) {
+        console.debug({
+          mesasge: "batch allocation failed to find fit at all",
+          target,
+          command,
+          threads,
+          endAt,
+          runFor,
+        });
+        break;
+      }
+      // allocate task to server
+      const [serverName] = bestFit;
+      batchAssignments.push({
+        serverName,
+        target,
+        command,
+        threads,
+        endAt,
+        runFor,
+      });
+    }
+    if (batchAssignments.length < (hack ? 4 : 3)) {
+      // couldn't allocate entire batch => skip batch
+      continue;
+    }
+    // allocation succeeds => _actually_ store/retain allocation, and update remaining ram counts
+    for (const {
+      serverName,
+      target,
+      command,
+      threads,
+      endAt,
+      runFor,
+    } of batchAssignments) {
+      if (!batchAllocations.has(serverName)) {
+        batchAllocations.set(serverName, []);
+      }
+      batchAllocations
+        .get(serverName)!
+        .push({ target, command, runFor, endAt, threads });
+      const [, allocation] = availableHosts.find(
+        ([hostname]) => hostname === serverName,
+      )!;
+      allocation.allocatableRam -= ramCosts[command] * threads;
+    }
+  }
+  return batchAllocations;
 }
