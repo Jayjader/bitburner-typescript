@@ -5,6 +5,7 @@ import {
   scanForRunningWorkers,
   updateConfigs,
 } from "/scripts/scanning";
+import { scripts as batchScripts } from "/scripts/batching";
 
 const commands = {
   Crack: /crack:(?:\w|-|\.)+/,
@@ -18,6 +19,7 @@ const commands = {
   StopAll: /stopall/,
   Allocate: /allocate:(?:\w|-|\.)+:((?:\w|-|\.)+):(\d+)/,
   Share: /share:((?:\w|-|\.)+):(\d+)/,
+  Batch: /batch:((?:\w|-|\.)+):(.+)/,
 };
 // matches a hostname after a :
 const destination_matcher = /\w+:((?:\w|-|\.)+)/;
@@ -27,6 +29,7 @@ const scripts = {
   crack: "scripts/nuke.js",
   killall: "scripts/killall.js",
   share: "scripts/share.js",
+  ...batchScripts,
 };
 
 export async function main(ns: NS) {
@@ -55,17 +58,17 @@ export async function main(ns: NS) {
     console.debug({ message: "commands parsed", commandList });
 
     const spawned = [];
-    for (const command of commandList) {
-      if (command.startsWith("debug")) {
-        if (command === "debug") ns.tprintf(JSON.stringify([...workers]));
+    for (const commandRead of commandList) {
+      if (commandRead.startsWith("debug")) {
+        if (commandRead === "debug") ns.tprintf(JSON.stringify([...workers]));
         continue;
       }
-      if (!destination_matcher.test(command)) {
+      if (!destination_matcher.test(commandRead)) {
         continue;
       }
-      const [, destination] = destination_matcher.exec(command)!;
+      const [, destination] = destination_matcher.exec(commandRead)!;
 
-      if (commands.Crack.test(command)) {
+      if (commands.Crack.test(commandRead)) {
         if (ns.exec(scripts.crack, "home", 1, destination)) {
           console.info({ message: "crack launched", destination });
         }
@@ -76,12 +79,46 @@ export async function main(ns: NS) {
         workers.set(destination, []);
       }
       const workersAtDestination = workers.get(destination)!;
-      if (commands.Target.test(command)) {
+      if (commands.Target.test(commandRead)) {
         // todo
-      } else if (commands.Basic.test(command)) {
+      } else if (commands.Basic.test(commandRead)) {
         // todo
-      } else if (commands.Allocate.test(command)) {
-        const [, newTarget, threadCount] = commands.Allocate.exec(command)!;
+      } else if (commands.Batch.test(commandRead)) {
+        console.debug({ message: "batch entered" });
+        const [, target, tasksRaw] = commands.Batch.exec(commandRead)!;
+        console.debug({ message: "batch parsed", target, tasksRaw });
+        const tasks = JSON.parse(tasksRaw);
+        let accumulatedDelay = 0;
+        for (const { hostname, threads, command, endAt, runFor } of tasks) {
+          const pid = ns.exec(
+            scripts[command as keyof typeof scripts],
+            hostname,
+            {
+              threads,
+              temporary: true,
+            },
+            "--runFor",
+            runFor,
+            "--endAt",
+            endAt + accumulatedDelay,
+            "--target",
+            target,
+          );
+          console.debug({
+            message: "batch task spawned",
+            hostname,
+            command,
+            threads,
+            accumulatedDelay,
+            endAt,
+            runFor,
+          });
+          const handle = ns.getPortHandle(ports.batchCommandOffset + pid);
+          await handle.nextWrite();
+          accumulatedDelay += handle.read() as number;
+        }
+      } else if (commands.Allocate.test(commandRead)) {
+        const [, newTarget, threadCount] = commands.Allocate.exec(commandRead)!;
         const threads = parseInt(threadCount, 10);
         const existingWorker = workersAtDestination.find(
           ({ target }) => target === newTarget,
@@ -150,8 +187,8 @@ export async function main(ns: NS) {
             });
           }
         }
-      } else if (commands.Share.test(command)) {
-        const [, serverName, threads] = commands.Share.exec(command)!;
+      } else if (commands.Share.test(commandRead)) {
+        const [, serverName, threads] = commands.Share.exec(commandRead)!;
         const threadCount = parseInt(threads, 10);
         ns.scp(scripts.share, serverName);
         const gpid = spawnWorker(ns, "share", serverName, "", threadCount);
@@ -176,20 +213,20 @@ export async function main(ns: NS) {
             threadCount,
           });
         }
-      } else if (commands.Grow.test(command)) {
+      } else if (commands.Grow.test(commandRead)) {
         // todo
-      } else if (commands.Weaken.test(command)) {
+      } else if (commands.Weaken.test(commandRead)) {
         // todo
-      } else if (commands.Hack.test(command)) {
+      } else if (commands.Hack.test(commandRead)) {
         // todo
-      } else if (commands.Stop.test(command)) {
+      } else if (commands.Stop.test(commandRead)) {
         /*
             killWorker(ns, worker)
             */
-      } else if (commands.Purge.test(command)) {
-        const [, server] = commands.Purge.exec(command)!;
+      } else if (commands.Purge.test(commandRead)) {
+        const [, server] = commands.Purge.exec(commandRead)!;
         ns.killall(server);
-      } else if (commands.StopAll.test(command)) {
+      } else if (commands.StopAll.test(commandRead)) {
         ns.exec(scripts.killall, "home");
       }
     }
