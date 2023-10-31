@@ -183,7 +183,6 @@ export async function main(ns: NS) {
       hosts,
       !parsedFlags["forbid-home"],
       targets,
-      true,
     );
 
     const ramCosts = Object.fromEntries(

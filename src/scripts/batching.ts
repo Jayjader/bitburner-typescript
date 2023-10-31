@@ -15,7 +15,17 @@ export const flagSchema: FlagSchema = [
 ];
 
 // this might need to be inlined for optimal performance some day
-export function prepare(ns: NS) {
+export async function prepare(ns: NS) {
+  const startHandle = ns.getPortHandle(ports.batchCommandOffset + ns.pid);
+  console.debug({
+    message: "waiting for controller pid",
+    port: ports.batchCommandOffset + ns.pid,
+  });
+  while (startHandle.empty()) {
+    await startHandle.nextWrite();
+  }
+  const controllerPid = startHandle.read() as number;
+  console.debug({ message: "read controller pid from port", controllerPid });
   const flags = ns.flags(flagSchema);
   const target = flags.target as string;
   const runFor = flags.runFor as number;
@@ -29,12 +39,12 @@ export function prepare(ns: NS) {
       endAt,
       actualDelay: delay,
     });
-    ns.writePort(ports.batchCommandOffset + ns.pid, -delay);
+    startHandle.write(-delay);
     delay = 0;
   } else {
-    ns.writePort(ports.batchCommandOffset + ns.pid, 0);
+    startHandle.write(0);
   }
-  return { target, delay };
+  return { target, delay, controllerPid };
 }
 
 export function autocomplete(data: AutocompleteData) {

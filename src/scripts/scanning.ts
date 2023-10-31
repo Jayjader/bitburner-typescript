@@ -166,13 +166,20 @@ export type ServerAllocation = ServerAttributes & {
   allocated: boolean;
   allocatableRam: number;
 };
+export type BatchTask = {
+  command: string;
+  endAt: number;
+  runFor: number;
+  threads: number;
+};
+export type Batch = { target: string; tasks: BatchTask[] };
+export type BatchAllocation = { target: string } & BatchTask;
 export function allocateBatches(
   ns: NS,
   scripts: Record<string, string>,
   hosts: Map<string, ServerAttributes>,
   allowHome: boolean,
   targets: string[],
-  hack = false,
   startDelay = 1_000,
   delay = 5,
 ) {
@@ -197,15 +204,11 @@ export function allocateBatches(
   }
 
   // Calculate batch sizes for target list
-  type BatchTask = {
-    command: keyof typeof scripts;
-    endAt: number;
-    runFor: number;
-    threads: number;
-  };
-  type Batch = { target: string; tasks: BatchTask[] };
   const batches: Batch[] = [];
   for (const target of targets) {
+    const hack =
+      ns.getServerSecurityLevel(target) <=
+      1 + ns.getServerMinSecurityLevel(target);
     const growDuration = ns.getGrowTime(target);
     const weakenDuration = ns.getWeakenTime(target);
     const hackDuration = ns.getHackTime(target);
@@ -270,11 +273,11 @@ export function allocateBatches(
   }
 
   // allocate batches according to available host ram
-  type BatchAllocation = { target: string } & BatchTask;
   const batchAllocations = new Map<string, BatchAllocation[]>();
   for (const { target, tasks } of batches) {
     const batchAssignments = [];
     // check that we can allocate all tasks for a before _actually_ allocating it
+    let couldntFit = false;
     for (const { command, threads, endAt, runFor } of tasks) {
       // find server that can hold entire task
       const bestFit = availableHosts.find(
@@ -290,6 +293,7 @@ export function allocateBatches(
           endAt,
           runFor,
         });
+        couldntFit = true;
         break;
       }
       // allocate task to server
@@ -303,7 +307,7 @@ export function allocateBatches(
         runFor,
       });
     }
-    if (batchAssignments.length < (hack ? 4 : 3)) {
+    if (couldntFit) {
       // couldn't allocate entire batch => skip batch
       continue;
     }

@@ -87,36 +87,7 @@ export async function main(ns: NS) {
         console.debug({ message: "batch entered" });
         const [, target, tasksRaw] = commands.Batch.exec(commandRead)!;
         console.debug({ message: "batch parsed", target, tasksRaw });
-        const tasks = JSON.parse(tasksRaw);
-        let accumulatedDelay = 0;
-        for (const { hostname, threads, command, endAt, runFor } of tasks) {
-          const pid = ns.exec(
-            scripts[command as keyof typeof scripts],
-            hostname,
-            {
-              threads,
-              temporary: true,
-            },
-            "--runFor",
-            runFor,
-            "--endAt",
-            endAt + accumulatedDelay,
-            "--target",
-            target,
-          );
-          console.debug({
-            message: "batch task spawned",
-            hostname,
-            command,
-            threads,
-            accumulatedDelay,
-            endAt,
-            runFor,
-          });
-          const handle = ns.getPortHandle(ports.batchCommandOffset + pid);
-          await handle.nextWrite();
-          accumulatedDelay += handle.read() as number;
-        }
+        ns.run("scripts/batchHWGW.js", 1, target, tasksRaw);
       } else if (commands.Allocate.test(commandRead)) {
         const [, newTarget, threadCount] = commands.Allocate.exec(commandRead)!;
         const threads = parseInt(threadCount, 10);

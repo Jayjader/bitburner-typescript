@@ -1,133 +1,116 @@
-import type { AutocompleteData, NS } from "@ns";
+import type { NS } from "@ns";
 import { scripts } from "/scripts/batching";
 import { ports } from "/scripts/constants";
 
-type FlagSchema = Parameters<AutocompleteData["flags"]>[0];
-const flagSchema: FlagSchema = [
-  ["delay", 5],
-  ["prep", false],
-  ["startDelay", 1_000],
-];
+type BatchTask = {
+  hostname: string;
+  command: keyof typeof scripts;
+  threads: number;
+  endAt: number;
+  runFor: number;
+};
 
+const libraries = ["scanning", "batching", "constants"].map(
+  (filename) => `scripts/${filename}.js`,
+);
 export async function main(ns: NS) {
-  const flags = ns.flags(flagSchema);
-  const delay = parseInt(flags.delay as string, 10);
-  const host = ns.args[0] as string;
-  // const target = ns.args[1] as string;
-  for (const filename of Object.values(scripts)) {
-    if (!ns.fileExists(filename, host)) {
-      ns.scp(filename, host);
+  const target = ns.args[0] as string;
+  const tasks = JSON.parse(ns.args[1] as string) as BatchTask[];
+  for (const { hostname, command } of tasks) {
+    for (const path of libraries) {
+      if (!ns.fileExists(path, hostname)) {
+        ns.scp(path, hostname);
+      }
+    }
+    if (!ns.fileExists(scripts[command], hostname)) {
+      ns.scp(scripts[command], hostname);
     }
   }
-  // ns.tail();
-  const targets = ["n00dles", "phantasy", "joesguns"];
-  const batches = [];
-  for (const target of targets) {
-    const growDuration = ns.getGrowTime(target);
-    const weakenDuration = ns.getWeakenTime(target);
-    const hackDuration = ns.getHackTime(target);
-    const moneyToHackRatio = 0.2;
-    const hackThreadsWanted = Math.max(
-      1,
-      Math.floor(moneyToHackRatio / ns.hackAnalyze(target)),
-    );
-    const growThreadsNeeded = Math.max(
-      1,
-      Math.ceil(ns.growthAnalyze(target, 1 / moneyToHackRatio)),
-    );
-    const weaken1ThreadsNeeded = Math.max(
-      1,
-      Math.ceil(
-        ns.hackAnalyzeSecurity(hackThreadsWanted, target) / ns.weakenAnalyze(1),
-      ),
-    );
-    const weaken2ThreadsNeeded = Math.max(
-      1,
-      Math.ceil(
-        ns.growthAnalyzeSecurity(growThreadsNeeded, target) /
-          ns.weakenAnalyze(1),
-      ),
-    );
-
-    const startTime =
-      Math.floor(performance.now()) + (flags.startDelay as number);
-    const endTime = startTime + weakenDuration + 2 * delay;
-    // task start delays
-    const [w1, w2, g, h] = [
-      weakenDuration + 2 * delay,
-      weakenDuration,
-      growDuration + delay,
-      hackDuration + 3 * delay,
-    ].map((time) => endTime - time - startTime);
-
-    console.debug({
-      w1,
-      w2,
-      g,
-      h,
-      weakenDuration,
-      growDuration,
-      hackDuration,
-      delay,
-      startTime,
-      endTime,
-    });
-    batches.push({
-      host,
-      target,
-      tasks: [
-        {
-          command: "weaken",
-          endAt: endTime - 2 * delay,
-          runFor: weakenDuration,
-          threads: weaken1ThreadsNeeded,
-        } as const,
-        {
-          command: "weaken",
-          endAt: endTime,
-          runFor: weakenDuration,
-          threads: weaken2ThreadsNeeded,
-        } as const,
-        {
-          command: "grow",
-          endAt: endTime - delay,
-          runFor: growDuration,
-          threads: growThreadsNeeded,
-        } as const,
-        ...(flags.prep
-          ? []
-          : [
-              {
-                command: "hack",
-                endAt: endTime - 3 * delay,
-                runFor: hackDuration,
-                threads: hackThreadsWanted,
-              } as const,
-            ]),
-      ],
-    });
-  }
+  const [earliestEnd, latestEnd] = tasks.reduce(
+    ([earliest, latest], { endAt }) => [
+      Math.min(earliest, endAt),
+      Math.max(latest, endAt),
+    ],
+    [Number.POSITIVE_INFINITY, 0],
+  );
+  const startTime = performance.now();
+  const freeDuration = earliestEnd - startTime - 2 * 10; // hardcoded delay padding
+  const occupiedDuration = latestEnd - earliestEnd + 2 * 10; // hardcoded delay padding
+  const staggeredBatchCount = Math.floor(freeDuration / occupiedDuration);
+  // const totalBatchCount = 1 + staggeredBatchCount;
+  const totalBatchCount = 1; // todo: fix ram allocation / decide how to gracefully adjust when not enough ram for staggered tasks
+  const batchOffset = freeDuration / totalBatchCount;
 
   let accumulatedDelay = 0;
-  for (const { host, target, tasks } of batches) {
-    for (const { command, endAt, runFor, threads } of tasks) {
-      const pid = ns.exec(
-        scripts[command],
-        host,
-        {
-          threads: threads,
-          temporary: true,
-        },
-        "--runFor",
-        runFor,
-        "--endAt",
-        endAt + accumulatedDelay,
-        "--target",
-        target,
-      );
-      const handle = ns.getPortHandle(ports.batchCommandOffset + pid);
-      await handle.nextWrite();
-      accumulatedDelay += handle.read() as number;
+  while (true) {
+    for (let count = 0; count < totalBatchCount; count++) {
+      for (const { command, hostname, threads, endAt, runFor } of tasks) {
+        let pid;
+        while (
+          (pid = ns.exec(
+            scripts[command],
+            hostname,
+            {
+              threads,
+              temporary: true,
+            },
+            "--runFor",
+            runFor,
+            "--endAt",
+            endAt + accumulatedDelay + batchOffset * count,
+            "--target",
+            target,
+          )) == 0
+        ) {
+          console.warn({
+            message: "couldn't spawn batch task",
+            hostname,
+            target,
+            command,
+            threads,
+            accumulatedDelay,
+            endAt,
+            runFor,
+            batchOffset,
+            count,
+          });
+          await ns.sleep(50);
+        }
+        console.debug({
+          message: "batch task spawned",
+          hostname,
+          target,
+          command,
+          threads,
+          accumulatedDelay,
+          batchOffset,
+          count,
+          endAt,
+          runFor,
+          pid,
+        });
+        const handle = ns.getPortHandle(ports.batchCommandOffset + pid);
+        handle.write(ns.pid);
+        console.debug({
+          message: "wrote controller pid to port",
+          controllerPid: ns.pid,
+          port: ports.batchCommandOffset + pid,
+        });
+        await handle.nextWrite();
+        accumulatedDelay += handle.read() as number;
+      }
     }
+    let finishedCount = 0;
+    const finishHandle = ns.getPortHandle(ports.batchCommandOffset + ns.pid);
+    while (finishedCount < tasks.length * totalBatchCount) {
+      while (finishHandle.empty()) {
+        await finishHandle.nextWrite();
+      }
+      finishHandle.read();
+      finishedCount++;
+    }
+    // give the task scripts time to cleanup / die and free their ram
+    await ns.sleep(25);
+    console.debug({ message: "waited until end of batch" });
   }
 }
