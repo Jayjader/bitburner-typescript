@@ -160,15 +160,6 @@ export async function main(ns: NS) {
     }
     return accum;
   }, new Array<[string, ServerAllocation]>());
-  const targets = getHackingTargets(
-    hosts,
-    ns.getHackingLevel(),
-    portBusters,
-  ).sort(
-    ([, a], [, b]) =>
-      (b.growthFactor * b.maxMoney) / b.minSecurity -
-      (a.growthFactor * a.maxMoney) / a.minSecurity,
-  );
   if (parsedFlags.batch) {
     // TODO: c.f. Communication: Making your first proto-batcher at https://darktechnomancer.github.io/
     // tl;dr: it's time to attempt batches against the same target staggered over time
@@ -209,9 +200,6 @@ export async function main(ns: NS) {
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
         stuff.tasks.push({ target, command, threads });
-        // batchCommands.push(
-        //   `batch:${hostname}:${target}:${command}:${threads}:${endAt}:${runFor}`,
-        // );
       }
       perServer.set(hostname, stuff);
     }
@@ -228,18 +216,19 @@ export async function main(ns: NS) {
         );
       }
     }
-    // console.dir(perServer);
-    // if (batchCommands.length > 0) {
-    //   if (parsedFlags["dry-run"]) {
-    //     ns.tprintf(`Commands: ${batchCommands.join(",")}`);
-    //   } else {
-    //     await commandList(ns, batchCommands);
-    //   }
-    // }
   }
   if (parsedFlags.allocate) {
     const allocFuncs = allocationFuncs(ns);
 
+    const targets = getHackingTargets(
+      hosts,
+      ns.getHackingLevel(),
+      portBusters,
+    ).sort(
+      ([, a], [, b]) =>
+        (b.growthFactor * b.maxMoney) / b.minSecurity -
+        (a.growthFactor * a.maxMoney) / a.minSecurity,
+    );
     const allocatedTasks = new Map<string, TaskAllocation[]>();
     let nextTarget: [string, ServerAttributes] | undefined;
     // eslint-disable-next-line no-cond-assign

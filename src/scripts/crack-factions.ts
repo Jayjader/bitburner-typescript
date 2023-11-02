@@ -6,6 +6,6 @@ export async function main(ns: NS) {
   ns.run(
     "scripts/writeCommand.js",
     1,
-    servers.map((server) => `crack:${server}`).join(" "),
+    ...servers.map((server) => `crack:${server}`),
   );
 }
