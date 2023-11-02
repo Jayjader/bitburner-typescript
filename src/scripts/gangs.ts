@@ -26,94 +26,91 @@ export async function main(ns: NS) {
     "Train Charisma",
     "Territory Warfare",
   ];
+  const crimes = [
+    "Mug People",
+    "Deal Drugs",
+    "Strongarm Civilians",
+    "Run a Con",
+    "Armed Robbery",
+    "Traffick Illegal Arms",
+    "Threaten & Blackmail",
+    "Human Trafficking",
+    "Terrorism",
+  ];
   // ns.print(ns.gang.getEquipmentNames());
   // ns.gang.getEquipmentStats()
-  let vigilanteHysterisis: "on" | "off" = "on";
   ns.disableLog("sleep");
   ns.disableLog("getServerMoneyAvailable");
+  let loopCount = -1;
   while (true) {
+    await ns.sleep(1_000);
+    loopCount += 1;
     const gang = ns.gang.getGangInformation();
-    if (vigilanteHysterisis === "on") {
-      if (gang.wantedLevel === 1 || gang.wantedPenalty >= 0.95) {
-        vigilanteHysterisis = "off";
-        ns.printf("stopping vigilantism");
-        continue;
-      }
-      for (const name of ns.gang.getMemberNames()) {
-        ns.gang.getMemberInformation(name).task === "Vigilante Justice" ||
-          ns.gang.setMemberTask(name, "Vigilante Justice");
-      }
-    } else {
-      if (gang.wantedLevel > 1 && gang.wantedPenalty < 0.9) {
-        vigilanteHysterisis = "on";
-        ns.printf("starting vigilantism");
-        continue;
-      }
-      const maxTerritory = 1;
-      let wagingWarfare = 0;
-      const members = ns.gang
-        .getMemberNames()
-        .map((name) => [name, ns.gang.getMemberInformation(name)] as const);
-      shuffleArray(members);
-      for (const [name, info] of members) {
-        if ([info.agi, info.dex, info.str, info.def].some((val) => val < 100)) {
-          const task = canLowLevelTerror(info) ? "Terrorism" : "Train Combat";
-          if (info.task !== task) {
-            ns.gang.setMemberTask(name, task);
-          }
-          continue;
-        }
-
-        if ([info.agi, info.dex, info.str, info.def].some((val) => val < 125)) {
-          if (wagingWarfare < maxTerritory) {
-            if (info.task !== "Territory Warfare") {
-              ns.gang.setMemberTask(name, "Territory Warfare");
-            }
-            wagingWarfare += 1;
-          } else {
-            if (Math.random() > 0.25) {
-              if (info.task !== "Mug People") {
-                ns.gang.setMemberTask(name, "Mug People");
-              }
-            } else {
-              const task = canLowLevelTerror(info)
-                ? "Terrorism"
-                : "Train Combat";
-              if (info.task !== task) {
-                ns.gang.setMemberTask(name, task);
-              }
-            }
-          }
-          continue;
-        }
-
-        if ([info.agi, info.dex, info.str, info.def].some((val) => val < 175)) {
-          if (Math.random() > 0.25) {
-            if (info.task !== "Strongarm Civilians") {
-              ns.gang.setMemberTask(name, "Strongarm Civilians");
-            }
-          } else {
-            const task = canLowLevelTerror(info) ? "Terrorism" : "Train Combat";
-            if (info.task !== task) {
-              ns.gang.setMemberTask(name, task);
-            }
-          }
-          continue;
-        }
-
-        if (Math.random() > 0.25) {
-          if (info.task !== "Traffick Illegal Arms") {
-            ns.gang.setMemberTask(name, "Traffick Illegal Arms");
-          }
-        } else {
-          const task = canLowLevelTerror(info) ? "Terrorism" : "Train Combat";
-          if (info.task !== task) {
-            ns.gang.setMemberTask(name, task);
-          }
-        }
+    const members = ns.gang.getMemberNames();
+    if (loopCount % 100 === 0) {
+      for (const m of members) {
+        ns.gang.setMemberTask(m, "Unassigned");
       }
     }
-    for (const name of ns.gang.getMemberNames()) {
+    const unassigned = members.filter(
+      (name) => ns.gang.getMemberInformation(name).task === "Unassigned",
+    );
+    const hasTask = members.filter(
+      (name) => ns.gang.getMemberInformation(name).task !== "Unassigned",
+    );
+    shuffleArray(hasTask);
+    const wantedGainRate = gang.wantedLevelGainRate;
+    const wantedPenalty = gang.wantedPenalty;
+    if (wantedGainRate >= 0) {
+      if (unassigned.length > 0) {
+        ns.gang.setMemberTask(unassigned[0], "Vigilante Justice");
+        continue;
+      }
+      if (wantedPenalty < 0.9) {
+        const memberIncreasingWantedLevel = hasTask.find((name) =>
+          crimes.includes(ns.gang.getMemberInformation(name).task),
+        );
+        if (memberIncreasingWantedLevel) {
+          ns.gang.setMemberTask(
+            memberIncreasingWantedLevel,
+            "Vigilante Justice",
+          );
+        }
+      } else if (wantedGainRate <= 0) {
+        if (unassigned.length > 0) {
+          ns.gang.setMemberTask(
+            unassigned[0],
+            taskForMember(ns.gang.getMemberInformation(unassigned[0])),
+          );
+          continue;
+        }
+        if (wantedPenalty > 0.9) {
+          const memberToPutToTask = hasTask.find(
+            (name) =>
+              ns.gang.getMemberInformation(name).task === "Vigilante Justice",
+          );
+          if (memberToPutToTask) {
+            ns.gang.setMemberTask(
+              memberToPutToTask,
+              taskForMember(ns.gang.getMemberInformation(memberToPutToTask)),
+            );
+          }
+        }
+      }
+    } else if (wantedGainRate <= 0 && wantedPenalty > 0.9) {
+      const memberToPutToTask = [...unassigned, ...hasTask].find(
+        (name) =>
+          ns.gang.getMemberInformation(name).task === "Vigilante Justice",
+      );
+      if (memberToPutToTask) {
+        ns.gang.setMemberTask(
+          memberToPutToTask,
+          taskForMember(ns.gang.getMemberInformation(memberToPutToTask)),
+        );
+      }
+    }
+
+    for (const name of members) {
       for (const upgrade of upgradesToBuy(ns.gang.getMemberInformation(name))) {
         if (
           ns.getServerMoneyAvailable("home") -
@@ -126,10 +123,9 @@ export async function main(ns: NS) {
       }
     }
     if (gang.respect < gang.respectForNextRecruit) {
-      await ns.sleep(5_000);
       continue;
     }
-    const count = ns.gang.getMemberNames().length;
+    const count = members.length;
     ns.gang.recruitMember(`ganger-${count}`);
   }
 }
@@ -143,6 +139,24 @@ function shuffleArray<T>(array: T[]) {
 
 function canLowLevelTerror(info: GangMemberInfo) {
   return info.hack + info.dex + info.def + info.str + info.cha < 630;
+}
+
+function sumCombatSkills(info: GangMemberInfo) {
+  return [info.agi, info.dex, info.str, info.def].reduce(
+    (accum, val) => accum + val,
+  );
+}
+function taskForMember(info: GangMemberInfo) {
+  if (canLowLevelTerror(info)) {
+    return "Terrorism";
+  }
+  if (sumCombatSkills(info) < 500) {
+    return "Mug People";
+  }
+  if (sumCombatSkills(info) < 1000) {
+    return "Strongarm Civilians";
+  }
+  return "Traffick Illegal Arms";
 }
 
 function upgradesToBuy(info: GangMemberInfo) {
