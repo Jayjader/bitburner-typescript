@@ -1,10 +1,14 @@
 import type { AutocompleteData, NS } from "@ns";
 
 type FlagType = Parameters<AutocompleteData["flags"]>[0];
-const flags: FlagType = [["size", 2 ** 10]];
+const flags: FlagType = [
+  ["size", 2 ** 10],
+  ["upgrade", false],
+];
 
 const hostname = (i: number) => `swarm-${i}`;
 export async function main(ns: NS) {
+  ns.disableLog("sleep");
   const parsedFlags = ns.flags(flags);
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   //@ts-ignore
@@ -23,6 +27,9 @@ export async function main(ns: NS) {
       ns.purchaseServer(hostname(ns.getPurchasedServers().length), size);
     }
     await ns.sleep(1_000);
+  }
+  if (parsedFlags.upgrade) {
+    ns.spawn("scripts/upgradeServers.js", 1, "--powerOfTwo", 2, "--continue");
   }
 }
 

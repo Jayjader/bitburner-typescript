@@ -1,9 +1,13 @@
 import type { AutocompleteData, NS } from "@ns";
 
 type FlagType = Parameters<AutocompleteData["flags"]>[0];
-const flags: FlagType = [["powerOfTwo", 0]];
+const flags: FlagType = [
+  ["powerOfTwo", 0],
+  ["continue", false],
+];
 
 export async function main(ns: NS) {
+  ns.disableLog("sleep");
   const parsedFlags = ns.flags(flags);
   const size = Math.min(
     ns.getPurchasedServerMaxRam(),
@@ -34,6 +38,15 @@ export async function main(ns: NS) {
     "success",
     10_000,
   );
+  if (parsedFlags.continue) {
+    ns.spawn(
+      ns.getScriptName(),
+      { spawnDelay: 250 },
+      "--powerOfTwo",
+      Math.log2(size) + 1,
+      "--continue",
+    );
+  }
 }
 export function autocomplete(data: AutocompleteData) {
   const parsedFlags = data.flags(flags);
