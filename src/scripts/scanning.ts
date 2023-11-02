@@ -59,7 +59,7 @@ export function getAllocatableRam(ns: NS, serverName: string, maxRam: number) {
     result,
   });
   if (serverName === "home") {
-    return Math.max(0, result - 200);
+    return Math.min(0.75 * result, Math.abs(result - 200));
   }
   return result;
 }
@@ -206,9 +206,6 @@ export function allocateBatches(
   // Calculate batch sizes for target list
   const batches: Batch[] = [];
   for (const target of targets) {
-    const hack =
-      ns.getServerSecurityLevel(target) <=
-      1 + ns.getServerMinSecurityLevel(target);
     const growDuration = ns.getGrowTime(target);
     const weakenDuration = ns.getWeakenTime(target);
     const hackDuration = ns.getHackTime(target);
@@ -258,16 +255,12 @@ export function allocateBatches(
           runFor: growDuration,
           threads: growThreadsNeeded,
         },
-        ...(hack
-          ? [
-              {
-                command: "hack",
-                endAt: endTime - 3 * delay,
-                runFor: hackDuration,
-                threads: hackThreadsWanted,
-              },
-            ]
-          : []),
+        {
+          command: "hack",
+          endAt: endTime - 3 * delay,
+          runFor: hackDuration,
+          threads: hackThreadsWanted,
+        },
       ],
     });
   }
@@ -275,15 +268,34 @@ export function allocateBatches(
   // allocate batches according to available host ram
   const batchAllocations = new Map<string, BatchAllocation[]>();
   for (const { target, tasks } of batches) {
-    const batchAssignments = [];
+    const batchAssignments: {
+      serverName: string;
+      target: string;
+      command: keyof typeof scripts;
+      threads: number;
+      endAt: number;
+      runFor: number;
+    }[] = [];
     // check that we can allocate all tasks for a before _actually_ allocating it
     let couldntFit = false;
     for (const { command, threads, endAt, runFor } of tasks) {
       // find server that can hold entire task
-      const bestFit = availableHosts.find(
-        ([, allocation]) =>
-          allocation.allocatableRam >= ramCosts[command] * threads,
-      );
+      const bestFit = availableHosts
+        .filter(([hostname, allocation]) => {
+          let allocatedThisBatch = 0;
+          for (const assignment of batchAssignments) {
+            if (assignment.serverName === hostname) {
+              allocatedThisBatch +=
+                ramCosts[assignment.command] * assignment.threads;
+            }
+          }
+          return (
+            allocation.allocatableRam - allocatedThisBatch >=
+            ramCosts[command] * threads
+          );
+        })
+        .sort(([, a], [, b]) => a.allocatableRam - b.allocatableRam)
+        .pop();
       if (!bestFit) {
         console.debug({
           message: "batch allocation failed to find fit at all",

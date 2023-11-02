@@ -43,8 +43,16 @@ export async function main(ns: NS) {
 
   let accumulatedDelay = 0;
   while (true) {
+    let spawned = 0;
     for (let count = 0; count < totalBatchCount; count++) {
       for (const { command, hostname, threads, endAt, runFor } of tasks) {
+        if (
+          command === "hack" &&
+          ns.getServerSecurityLevel(target) >
+            ns.getServerMinSecurityLevel(target) + 1
+        ) {
+          continue;
+        }
         let pid;
         while (
           (pid = ns.exec(
@@ -74,8 +82,9 @@ export async function main(ns: NS) {
             batchOffset,
             count,
           });
-          await ns.sleep(50);
+          await ns.sleep(25);
         }
+        spawned += 1;
         console.debug({
           message: "batch task spawned",
           hostname,
@@ -88,6 +97,7 @@ export async function main(ns: NS) {
           endAt,
           runFor,
           pid,
+          spawned,
         });
         const handle = ns.getPortHandle(ports.batchCommandOffset + pid);
         handle.write(ns.pid);
@@ -102,7 +112,7 @@ export async function main(ns: NS) {
     }
     let finishedCount = 0;
     const finishHandle = ns.getPortHandle(ports.batchCommandOffset + ns.pid);
-    while (finishedCount < tasks.length * totalBatchCount) {
+    while (finishedCount < spawned) {
       while (finishHandle.empty()) {
         await finishHandle.nextWrite();
       }
@@ -110,7 +120,7 @@ export async function main(ns: NS) {
       finishedCount++;
     }
     // give the task scripts time to cleanup / die and free their ram
-    await ns.sleep(25);
+    await ns.sleep(5);
     console.debug({ message: "waited until end of batch" });
   }
 }
