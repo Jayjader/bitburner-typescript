@@ -82,24 +82,15 @@ export async function main(ns: NS) {
             "Vigilante Justice",
           );
         }
-      } else if (wantedGainRate <= 0) {
-        if (unassigned.length > 0) {
-          ns.gang.setMemberTask(
-            unassigned[0],
-            taskForMember(ns.gang.getMemberInformation(unassigned[0])),
-          );
-          continue;
-        }
-        if (wantedPenalty > 0.9) {
-          const memberToPutToTask = hasTask.find(
-            (name) =>
-              ns.gang.getMemberInformation(name).task === "Vigilante Justice",
-          );
-          if (memberToPutToTask) {
-            ns.gang.setMemberTask(
-              memberToPutToTask,
-              taskForMember(ns.gang.getMemberInformation(memberToPutToTask)),
-            );
+      } else {
+        for (const member of hasTask) {
+          const memberInfo = ns.gang.getMemberInformation(member);
+          const neededTask = taskForMember(memberInfo);
+          if (
+            memberInfo.task !== neededTask &&
+            memberInfo.task !== "Territory Warfare"
+          ) {
+            ns.gang.setMemberTask(member, neededTask);
           }
         }
       }
@@ -121,6 +112,17 @@ export async function main(ns: NS) {
             memberToPutToTask,
             taskForMember(ns.gang.getMemberInformation(memberToPutToTask)),
           );
+        } else {
+          for (const member of hasTask) {
+            const memberInfo = ns.gang.getMemberInformation(member);
+            const neededTask = taskForMember(memberInfo);
+            if (
+              memberInfo.task !== neededTask &&
+              memberInfo.task !== "Territory Warfare"
+            ) {
+              ns.gang.setMemberTask(member, neededTask);
+            }
+          }
         }
       }
     }
@@ -162,25 +164,6 @@ export async function main(ns: NS) {
         );
       }
     }
-
-    for (const name of members) {
-      for (const upgrade of upgradesToBuy(ns.gang.getMemberInformation(name))) {
-        if (
-          ns.getServerMoneyAvailable("home") -
-            ns.gang.getEquipmentCost(upgrade) >
-          30_000_000
-        ) {
-          console.debug({ message: "buying upgrade", name, upgrade });
-          ns.gang.purchaseEquipment(name, upgrade);
-        }
-      }
-    }
-    if (gang.respect < gang.respectForNextRecruit) {
-      continue;
-    }
-    const count = members.length;
-    ns.gang.recruitMember(`ganger-${count}`);
-    ns.gang.setMemberTask(`ganger-${count}`, "Terrorism");
   }
 }
 
@@ -217,6 +200,9 @@ function taskForMember(info: GangMemberInfo) {
   if (sumCombatSkills(info) < 500) {
     return "Train Combat";
   }
+  if (sumCombatSkills(info) < 750) {
+    return "Mug People";
+  }
   if (sumCombatSkills(info) < 1000) {
     return "Strongarm Civilians";
   }
@@ -224,40 +210,4 @@ function taskForMember(info: GangMemberInfo) {
   //   return "Territory Warfare";
   // }
   return "Traffick Illegal Arms";
-}
-
-function upgradesToBuy(info: GangMemberInfo) {
-  const toBuy = [];
-  for (const u of [
-    "Baseball Bat",
-    "Bulletproof Vest",
-    "Ford Flex V20",
-    "NUKE Rootkit",
-  ]) {
-    if (!info.upgrades.includes(u)) {
-      toBuy.push(u);
-    }
-  }
-  if ([info.agi, info.dex, info.str, info.def].some((val) => val > 50)) {
-    for (const u of ["Katana", "Full Body Armor", "ATX1070 Superbike"]) {
-      if (!info.upgrades.includes(u)) {
-        toBuy.push(u);
-      }
-    }
-  }
-  if ([info.agi, info.dex, info.str, info.def].some((val) => val > 100)) {
-    for (const u of ["Glock 18C", "Liquid Body Armor", "Mercedes-Benz S9001"]) {
-      if (!info.upgrades.includes(u)) {
-        toBuy.push(u);
-      }
-    }
-  }
-  if ([info.agi, info.dex, info.str, info.def].some((val) => val > 200)) {
-    for (const u of ["White Ferrari", "Graphene Plating Armor", "P90C"]) {
-      if (!info.upgrades.includes(u)) {
-        toBuy.push(u);
-      }
-    }
-  }
-  return toBuy;
 }
