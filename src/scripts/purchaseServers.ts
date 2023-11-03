@@ -25,8 +25,9 @@ export async function main(ns: NS) {
   while (ns.getPurchasedServers().length < ns.getPurchasedServerLimit()) {
     if (ns.getServerMoneyAvailable("home") >= ns.getPurchasedServerCost(size)) {
       ns.purchaseServer(hostname(ns.getPurchasedServers().length), size);
+    } else {
+      await ns.sleep(1_000);
     }
-    await ns.sleep(1_000);
   }
   if (parsedFlags.upgrade) {
     ns.spawn("scripts/upgradeServers.js", 1, "--powerOfTwo", 2, "--continue");
