@@ -127,16 +127,18 @@ export async function main(ns: NS) {
       }
     }
 
-    let clash = true;
-    for (const [, info] of Object.entries(ns.gang.getOtherGangInformation())) {
-      if (info.power > 0.9 * gang.power) {
+    let clash = gang.territory < 1;
+    for (const [name, info] of Object.entries(
+      ns.gang.getOtherGangInformation(),
+    )) {
+      if (name !== gang.faction && info.power > 0.9 * gang.power) {
         clash = false;
       }
     }
     if (gang.territoryWarfareEngaged !== clash) {
       ns.gang.setTerritoryWarfare(clash);
     }
-    if (gang.respectGainRate > 0) {
+    if (gang.respectGainRate > 0 && gang.territory < 1) {
       const mostExp = hasTask
         .slice()
         .sort(
