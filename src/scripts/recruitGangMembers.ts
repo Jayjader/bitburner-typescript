@@ -7,7 +7,7 @@ export async function main(ns: NS) {
       continue;
     }
     ns.gang.recruitMember(
-      `ganger-${crypto.getRandomValues(new Uint8Array(2))}`,
+      `ganger-${crypto.getRandomValues(new Uint8Array(1))}`,
     );
   }
 }
