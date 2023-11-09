@@ -4,17 +4,27 @@ export async function main(ns: NS) {
   ns.disableLog("sleep");
   ns.disableLog("gang.purchaseEquipment");
   ns.disableLog("getServerMoneyAvailable");
+  while (!ns.gang.inGang()) {
+    await ns.sleep(1000);
+  }
+  const upgrades = ns.gang
+    .getEquipmentNames()
+    .map((name) => [name, ns.gang.getEquipmentCost(name)] as const)
+    .sort(([, aCost], [, bCost]) => aCost - bCost);
   while (true) {
     await ns.sleep(1_000);
     let availableMoney = ns.getServerMoneyAvailable("home");
     const members = ns.gang.getMemberNames();
-    const upgrades = ns.gang.getEquipmentNames();
-    for (const name of members) {
-      for (const upgrade of upgrades) {
-        if (ns.gang.getEquipmentCost(upgrade) < 0.5 * availableMoney) {
+    for (const [upgrade, cost] of upgrades) {
+      for (const name of members) {
+        if (cost < 0.5 * availableMoney) {
           if (ns.gang.purchaseEquipment(name, upgrade)) {
-            availableMoney -= ns.gang.getEquipmentCost(upgrade);
-            ns.printf(`Purchased equipment ${upgrade} for ${name}`);
+            availableMoney -= cost;
+            ns.printf(
+              `Purchased equipment ${upgrade} for ${name} for $${ns.formatNumber(
+                cost,
+              )}`,
+            );
           }
         }
       }
