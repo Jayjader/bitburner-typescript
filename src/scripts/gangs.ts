@@ -1,5 +1,6 @@
 import type { GangMemberInfo, NS } from "@ns";
 
+const wantedThreshold = 0.9;
 export async function main(ns: NS) {
   if (!ns.gang) {
     ns.tprintf("Gang api not available");
@@ -37,26 +38,13 @@ export async function main(ns: NS) {
     "Human Trafficking",
     "Terrorism",
   ];
-  // ns.print(ns.gang.getEquipmentNames());
-  // ns.gang.getEquipmentStats()
   ns.disableLog("sleep");
   ns.disableLog("getServerMoneyAvailable");
   const sleepTime = 250;
-  // let loopCount = -1;
   while (true) {
     await ns.sleep(sleepTime / (ns.gang.getBonusTime() || 1));
-    // loopCount += 1;
     const gang = ns.gang.getGangInformation();
     const members = ns.gang.getMemberNames();
-    /*
-    // every 60 irl seconds we clear *all* the members' tasks
-    // combined with the shuffling below, this should prevent members from getting stuck on the same task forever
-    if (loopCount % Math.floor(60 * (1_000 / sleepTime)) === 0) {
-      for (const m of members) {
-        ns.gang.setMemberTask(m, "Unassigned");
-      }
-    }
-     */
     const unassigned = members.filter(
       (name) => ns.gang.getMemberInformation(name).task === "Unassigned",
     );
@@ -72,7 +60,7 @@ export async function main(ns: NS) {
         ns.gang.setMemberTask(unassigned[0], "Vigilante Justice");
         continue;
       }
-      if (wantedPenalty < 0.9) {
+      if (wantedPenalty < wantedThreshold) {
         const memberIncreasingWantedLevel = hasTask.find((name) =>
           crimes.includes(ns.gang.getMemberInformation(name).task),
         );
@@ -95,7 +83,7 @@ export async function main(ns: NS) {
         }
       }
     } else if (wantedGainRate <= 0) {
-      if (wantedPenalty > 0.9) {
+      if (wantedPenalty > wantedThreshold) {
         if (unassigned.length > 0) {
           ns.gang.setMemberTask(
             unassigned[0],
