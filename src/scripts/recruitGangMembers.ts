@@ -5,8 +5,8 @@ export async function main(ns: NS) {
     await ns.sleep(1000);
   }
   while (true) {
-    await ns.sleep(1_000);
     if (!ns.gang.canRecruitMember()) {
+      await ns.sleep(1_000);
       continue;
     }
     ns.gang.recruitMember(
