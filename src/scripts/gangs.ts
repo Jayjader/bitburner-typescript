@@ -126,7 +126,11 @@ export async function main(ns: NS) {
     if (gang.territoryWarfareEngaged !== clash) {
       ns.gang.setTerritoryWarfare(clash);
     }
-    if (gang.respectGainRate > 0 && gang.territory < 1) {
+    if (
+      members.length === 12 &&
+      gang.respectGainRate > 0 &&
+      gang.territory < 1
+    ) {
       const mostExp = hasTask
         .slice()
         .sort(
@@ -196,8 +200,5 @@ function taskForMember(info: GangMemberInfo) {
   if (sumCombatSkills(info) < 1000) {
     return "Strongarm Civilians";
   }
-  // if (sumCombatSkills(info) > 1000) {
-  //   return "Territory Warfare";
-  // }
   return "Traffick Illegal Arms";
 }
