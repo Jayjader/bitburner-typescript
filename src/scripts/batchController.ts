@@ -5,16 +5,33 @@ import { AutocompleteData } from "@ns";
 
 const startDelay = 1_000;
 const delay = 5;
+
+const flagSchema: Parameters<AutocompleteData["flags"]>[0] = [
+  ["moneyRatio", 0.2],
+];
 export async function main(ns: NS) {
   ns.disableLog("scan");
+  ns.disableLog("exec");
+  ns.disableLog("sleep");
+  ns.tail();
+  const flags = ns.flags(flagSchema);
   const target = ns.args[0] as string;
+  const moneyToHackRatio = flags.moneyRatio as number;
 
+  const activeBatchQueue: { adjustedEarliestEnd: number; taskCount: number }[] =
+    [];
+  const finishedHandle = ns.getPortHandle(ports.batchCommandOffset + ns.pid);
   while (true) {
+    console.debug({
+      message: "main loop entered",
+      target,
+      moneyToHackRatio,
+      activeBatchQueue,
+    });
     // batch calculations
     const growDuration = ns.getGrowTime(target);
     const weakenDuration = ns.getWeakenTime(target);
     const hackDuration = ns.getHackTime(target);
-    const moneyToHackRatio = 0.2;
     const targetServer = ns.getServer(target);
     // don't hack if server not prepped
     const hackThreadsWanted =
@@ -23,7 +40,7 @@ export async function main(ns: NS) {
         : Math.max(1, Math.floor(moneyToHackRatio / ns.hackAnalyze(target)));
     const growThreadsNeeded = Math.max(
       1,
-      Math.ceil(ns.growthAnalyze(target, 1 / moneyToHackRatio)),
+      Math.ceil(ns.growthAnalyze(target, 1 / (1 - moneyToHackRatio))),
     );
     const weaken1ThreadsNeeded = Math.max(
       1,
@@ -41,51 +58,49 @@ export async function main(ns: NS) {
 
     const startTime = Math.floor(performance.now()) + startDelay;
     const endTime = startTime + weakenDuration + 2 * delay;
+    const batchDuration = endTime - startTime;
     const firstWeakenTask = {
       command: "weaken",
       endAt: endTime - 2 * delay,
       runFor: weakenDuration,
       threads: weaken1ThreadsNeeded,
-    } as const; //,
+    } as const;
     const secondWeakenTask = {
       command: "weaken",
       endAt: endTime,
       runFor: weakenDuration,
       threads: weaken2ThreadsNeeded,
-    } as const; //,
+    } as const;
     const growTask = {
       command: "grow",
       endAt: endTime - delay,
       runFor: growDuration,
       threads: growThreadsNeeded,
-    } as const; //,
+    } as const;
     const hackTask = {
       command: "hack",
       endAt: endTime - 3 * delay,
       runFor: hackDuration,
       threads: hackThreadsWanted,
-    } as const; //,
-    const earliestEnd = Math.min(
-      firstWeakenTask.endAt,
-      secondWeakenTask.endAt,
-      growTask.endAt,
-      hackTask.endAt,
-    );
-    const latestEnd = Math.max(
-      firstWeakenTask.endAt,
-      secondWeakenTask.endAt,
-      growTask.endAt,
-      hackTask.endAt,
-    );
+    } as const;
 
-    const hosts: string[] = [];
-    const toScan = ["home"];
-    while (toScan.length > 0) {
-      const scanning = toScan.pop();
+    const hosts = [];
+    const toScanFrom = ["home"];
+    const seen: string[] = [];
+    while (toScanFrom.length > 0) {
+      const scanning = toScanFrom.pop();
       for (const host of ns.scan(scanning)) {
-        if (!hosts.includes(host)) {
-          hosts.push(host);
-          toScan.push(host);
+        if (!seen.includes(host)) {
+          seen.push(host);
+          toScanFrom.push(host);
+          const server = ns.getServer(host);
+          if (server.hasAdminRights) {
+            hosts.push({
+              name: host,
+              freeRam: server.maxRam - server.ramUsed,
+              cores: server.cpuCores,
+            });
+          }
         }
       }
     }
@@ -102,7 +117,7 @@ export async function main(ns: NS) {
       h: ramCosts.hack * hackTask.threads,
     };
     let accumulatedDelay = 0;
-    let spawned = 0;
+    let batchCount = 0;
     do {
       // find RAM for batch
       const batchHosts = new Map<
@@ -110,24 +125,21 @@ export async function main(ns: NS) {
         string
       >();
       // prefer multiple cores for grow and weaken
-      for (const host of hosts
-        .slice()
-        .sort((a, b) => ns.getServer(b).cpuCores - ns.getServer(a).cpuCores)) {
-        const server = ns.getServer(host);
-        let availableRam = server.maxRam - server.ramUsed;
-        if (!batchHosts.has(firstWeakenTask) && availableRam >= batchCosts.w1) {
-          batchHosts.set(firstWeakenTask, host);
-          availableRam -= batchCosts.w1;
+      for (const host of hosts.slice().sort((a, b) => b.cores - a.cores)) {
+        if (!batchHosts.has(firstWeakenTask) && host.freeRam >= batchCosts.w1) {
+          batchHosts.set(firstWeakenTask, host.name);
+          host.freeRam -= batchCosts.w1;
+        }
+        if (!batchHosts.has(growTask) && host.freeRam >= batchCosts.g) {
+          batchHosts.set(growTask, host.name);
+          host.freeRam -= batchCosts.g;
         }
         if (
           !batchHosts.has(secondWeakenTask) &&
-          availableRam >= batchCosts.w2
+          host.freeRam >= batchCosts.w2
         ) {
-          batchHosts.set(secondWeakenTask, host);
-          availableRam -= batchCosts.w2;
-        }
-        if (!batchHosts.has(growTask) && availableRam >= batchCosts.g) {
-          batchHosts.set(growTask, host);
+          batchHosts.set(secondWeakenTask, host.name);
+          host.freeRam -= batchCosts.w2;
         }
         if (
           [firstWeakenTask, secondWeakenTask, growTask].every((task) =>
@@ -137,32 +149,55 @@ export async function main(ns: NS) {
           break;
         }
       }
+      let allocated = true;
       if (batchHosts.size < 3) {
-        ns.printf("not enough ram for non-hacking tasks in batch");
-        break;
+        ns.printf(
+          `not enough ram for non-hacking tasks in batch: ${JSON.stringify(
+            batchCosts,
+          )}`,
+        );
+        allocated = false;
       }
-      if (batchCosts.h) {
+      if (allocated && batchCosts.h) {
         // avoid multiple core machines for hack
-        for (const host of hosts
-          .slice()
-          .sort(
-            (a, b) => ns.getServer(a).cpuCores - ns.getServer(b).cpuCores,
-          )) {
-          const server = ns.getServer(host);
-          if (
-            !batchHosts.has(hackTask) &&
-            server.maxRam - server.ramUsed >= batchCosts.h
-          ) {
-            batchHosts.set(hackTask, host);
+        for (const host of hosts.slice().sort((a, b) => a.cores - b.cores)) {
+          if (host.freeRam >= batchCosts.h) {
+            batchHosts.set(hackTask, host.name);
+            host.freeRam -= batchCosts.h;
             break;
           }
         }
         if (batchHosts.size < 4) {
-          ns.printf("not enough ram for entire batch (with hack)");
-          break;
+          ns.printf(
+            `not enough ram for entire batch (with hack): ${JSON.stringify(
+              batchCosts,
+            )}`,
+          );
+          allocated = false;
         }
       }
+      if (!allocated) {
+        const w1Host = batchHosts.get(firstWeakenTask);
+        if (w1Host) {
+          hosts.find(({ name }) => w1Host === name)!.freeRam += batchCosts.w1;
+          batchHosts.delete(firstWeakenTask);
+        }
+        const w2Host = batchHosts.get(secondWeakenTask);
+        if (w2Host) {
+          hosts.find(({ name }) => w2Host === name)!.freeRam += batchCosts.w2;
+          batchHosts.delete(secondWeakenTask);
+        }
+        const gHost = batchHosts.get(growTask);
+        if (gHost) {
+          hosts.find(({ name }) => gHost === name)!.freeRam += batchCosts.g;
+          batchHosts.delete(growTask);
+        }
+        break;
+      }
+      console.debug({ message: "allocated batch", batchHosts });
       // spawn & sync
+      let spawned = 0;
+      let adjustedEarliestEnd = Infinity;
       for (const [{ command, runFor, threads, endAt }, host] of batchHosts) {
         for (const file of [
           "scripts/constants.js",
@@ -186,23 +221,49 @@ export async function main(ns: NS) {
         );
         if (taskPid > 0) {
           spawned += 1;
+          adjustedEarliestEnd = Math.min(
+            endAt + accumulatedDelay,
+            adjustedEarliestEnd,
+          );
           const handle = ns.getPortHandle(ports.batchCommandOffset + taskPid);
           handle.write(ns.pid);
           await handle.nextWrite();
           accumulatedDelay += handle.read() as number;
+        } else {
+          ns.printf("failed exec, skipping remaining tasks for batch");
+          break;
         }
       }
+      if (spawned > 0) {
+        activeBatchQueue.push({ adjustedEarliestEnd, taskCount: spawned });
+        batchCount += 1;
+      }
       // insert padding between batches
-      accumulatedDelay += 2 * delay;
-      // if (startTime + accumulatedDelay >= earliestEnd) {
-      //   break;
-      // }
-    } while (startTime + accumulatedDelay < earliestEnd);
+      accumulatedDelay += 4 * delay;
+    } while (
+      // keep allocating and spawning batches until we need to be listening for an impending batch end
+      performance.now() + delay <
+      activeBatchQueue[0].adjustedEarliestEnd
+    );
+    if (batchCount > 0) {
+      ns.printf(
+        `batch count: ${batchCount} of duration ${batchDuration} with ${delay} padding`,
+      );
+      batchCount = 0;
+    }
 
-    // wait on finish
+    // wait on earliest batch finish
+    const earliestFinishingBatch = activeBatchQueue.shift();
+    if (!earliestFinishingBatch) {
+      ns.printf("no batches to wait on");
+      await ns.sleep(1_000);
+      continue;
+    }
+    ns.printf(
+      `waiting on batch to end at ${earliestFinishingBatch.adjustedEarliestEnd}`,
+    );
     let finishedCount = 0;
-    const finishedHandle = ns.getPortHandle(ports.batchCommandOffset + ns.pid);
-    while (finishedCount < spawned) {
+    while (finishedCount < earliestFinishingBatch.taskCount) {
       while (finishedHandle.empty()) {
         await finishedHandle.nextWrite();
       }
@@ -210,10 +271,9 @@ export async function main(ns: NS) {
       finishedCount += 1;
     }
     // give the task scripts some "time" to die and free up their ram
-    await ns.sleep(5 * 200);
-    // todo: try waiting only for next batch to end instead of all batches to end
+    await ns.sleep(1.5 * delay);
   }
 }
 export function autocomplete(data: AutocompleteData) {
-  return data.servers;
+  return [...flagSchema.map(([name]) => `--${name}`), ...data.servers];
 }
