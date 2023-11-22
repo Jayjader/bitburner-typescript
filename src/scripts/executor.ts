@@ -84,7 +84,6 @@ export async function main(ns: NS) {
       } else if (commands.Basic.test(commandRead)) {
         // todo
       } else if (commands.Batch.test(commandRead)) {
-        console.debug({ message: "batch entered" });
         const [, target, tasksRaw] = commands.Batch.exec(commandRead)!;
         console.debug({ message: "batch parsed", target, tasksRaw });
         ns.run("scripts/batchHWGW.js", 1, target, tasksRaw);
