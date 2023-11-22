@@ -15,7 +15,49 @@ export async function main(ns: NS) {
   ns.disableLog("exec");
   ns.disableLog("sleep");
   const flags = ns.flags(flagSchema);
-  const target = ns.args[0] as string;
+  let target;
+  if (ns.args.length === 3) {
+    target = ns.args[0] as string;
+  } else {
+    const targets = [];
+    const toScanFrom = ["home"];
+    const seen: string[] = [];
+    while (toScanFrom.length > 0) {
+      const scanning = toScanFrom.pop();
+      for (const host of ns.scan(scanning)) {
+        if (!seen.includes(host)) {
+          seen.push(host);
+          toScanFrom.push(host);
+          const server = ns.getServer(host);
+          if (
+            server.hasAdminRights &&
+            (server.moneyMax ?? 0) > 0 &&
+            (server.minDifficulty ?? 0) > 0
+          ) {
+            targets.push({
+              name: host,
+              minDifficulty: server.minDifficulty!,
+              maxMoney: server.moneyMax!,
+            });
+          }
+        }
+      }
+    }
+    targets.sort((a, b) => {
+      return a.maxMoney / a.minDifficulty - b.maxMoney / b.minDifficulty;
+    });
+    const choice = (await ns.prompt("Target for batches:", {
+      type: "select",
+      choices: targets.map(
+        ({ name, minDifficulty, maxMoney }) =>
+          `${name} (minSec: ${minDifficulty}, maxMon: ${maxMoney})`,
+      ),
+    })) as string;
+    if (choice === "") {
+      return;
+    }
+    target = choice.split(" ")[0];
+  }
   const moneyToHackRatio = flags.moneyRatio as number;
 
   const activeBatchQueue: { adjustedEarliestEnd: number; taskCount: number }[] =
@@ -288,6 +330,13 @@ export async function main(ns: NS) {
     await ns.sleep(1.5 * delay);
   }
 }
-export function autocomplete(data: AutocompleteData) {
+export function autocomplete(data: AutocompleteData, args: string[]) {
+  const flags = data.flags(flagSchema);
+  if (flags[flagSchema[0][0]]) {
+    return data.servers;
+  }
+  if (args.length === 2 && args[1].startsWith("--")) {
+    return [`--${flagSchema[0][0]}`];
+  }
   return [...flagSchema.map(([name]) => `--${name}`), ...data.servers];
 }
