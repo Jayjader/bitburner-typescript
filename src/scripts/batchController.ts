@@ -3,17 +3,17 @@ import { scripts as batchingScripts } from "scripts/batching";
 import { ports } from "/scripts/constants";
 import { AutocompleteData } from "@ns";
 
-const startDelay = 1_000;
+const startDelay = 500;
 const delay = 5;
 
 const flagSchema: Parameters<AutocompleteData["flags"]>[0] = [
   ["moneyRatio", 0.2],
 ];
 export async function main(ns: NS) {
+  const scriptStartTime = performance.now();
   ns.disableLog("scan");
   ns.disableLog("exec");
   ns.disableLog("sleep");
-  ns.tail();
   const flags = ns.flags(flagSchema);
   const target = ns.args[0] as string;
   const moneyToHackRatio = flags.moneyRatio as number;
@@ -21,6 +21,7 @@ export async function main(ns: NS) {
   const activeBatchQueue: { adjustedEarliestEnd: number; taskCount: number }[] =
     [];
   const finishedHandle = ns.getPortHandle(ports.batchCommandOffset + ns.pid);
+  ns.tail();
   while (true) {
     console.debug({
       message: "main loop entered",
@@ -34,10 +35,15 @@ export async function main(ns: NS) {
     const hackDuration = ns.getHackTime(target);
     const targetServer = ns.getServer(target);
     // don't hack if server not prepped
+    const moneyRatioPerHackThread = ns.hackAnalyze(target);
     const hackThreadsWanted =
-      targetServer.hackDifficulty! > targetServer.minDifficulty! // target is hackable so these always exist (external invariant, is the caller's responsibility)
+      targetServer.hackDifficulty! > targetServer.minDifficulty! ||
+      targetServer.moneyAvailable! < targetServer.moneyMax! // target is hackable so these always exist (external invariant, is the caller's responsibility)
         ? 0
-        : Math.max(1, Math.floor(moneyToHackRatio / ns.hackAnalyze(target)));
+        : Math.min(
+            Number.MAX_SAFE_INTEGER,
+            Math.max(1, Math.floor(moneyToHackRatio / moneyRatioPerHackThread)),
+          );
     const growThreadsNeeded = Math.max(
       1,
       Math.ceil(ns.growthAnalyze(target, 1 / (1 - moneyToHackRatio))),
@@ -56,7 +62,10 @@ export async function main(ns: NS) {
       ),
     );
 
-    const startTime = Math.floor(performance.now()) + startDelay;
+    const startTime = Math.max(
+      scriptStartTime + startDelay,
+      Math.floor(performance.now()) + 5 * delay,
+    );
     const endTime = startTime + weakenDuration + 2 * delay;
     const batchDuration = endTime - startTime;
     const firstWeakenTask = {
@@ -242,8 +251,10 @@ export async function main(ns: NS) {
       accumulatedDelay += 4 * delay;
     } while (
       // keep allocating and spawning batches until we need to be listening for an impending batch end
-      performance.now() + delay <
-      activeBatchQueue[0].adjustedEarliestEnd
+      // or allocated batches will occupy the target for 2 entire seconds
+      performance.now() + delay < activeBatchQueue[0].adjustedEarliestEnd &&
+      // activeBatchQueue.length < 2_000 / (4 * delay) &&
+      startTime + accumulatedDelay < activeBatchQueue[0].adjustedEarliestEnd
     );
     if (batchCount > 0) {
       ns.printf(
@@ -252,6 +263,9 @@ export async function main(ns: NS) {
       batchCount = 0;
     }
 
+    activeBatchQueue.sort(
+      (a, b) => a.adjustedEarliestEnd - b.adjustedEarliestEnd,
+    );
     // wait on earliest batch finish
     const earliestFinishingBatch = activeBatchQueue.shift();
     if (!earliestFinishingBatch) {
@@ -260,7 +274,7 @@ export async function main(ns: NS) {
       continue;
     }
     ns.printf(
-      `waiting on batch to end at ${earliestFinishingBatch.adjustedEarliestEnd}`,
+      `waiting on batch to end at ${earliestFinishingBatch.adjustedEarliestEnd} (${activeBatchQueue.length} other active batches)`,
     );
     let finishedCount = 0;
     while (finishedCount < earliestFinishingBatch.taskCount) {
