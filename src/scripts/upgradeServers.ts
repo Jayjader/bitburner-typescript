@@ -21,6 +21,7 @@ export async function main(ns: NS) {
       const upgradeCost = ns.getPurchasedServerUpgradeCost(serverName, size);
       ns.printf(`${serverName} upgrade cost: ${upgradeCost}`);
       while (!ns.upgradePurchasedServer(serverName, size)) {
+        ns.tail();
         ns.printf(
           `not enough money; need ${upgradeCost}, missing ${
             upgradeCost - ns.getServerMoneyAvailable("home")
@@ -38,7 +39,7 @@ export async function main(ns: NS) {
     "success",
     10_000,
   );
-  if (parsedFlags.continue) {
+  if (parsedFlags.continue && size < 2 ** 20) {
     ns.spawn(
       ns.getScriptName(),
       { spawnDelay: 250 },
