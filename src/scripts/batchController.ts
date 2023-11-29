@@ -16,7 +16,7 @@ export async function main(ns: NS) {
   ns.disableLog("sleep");
   const flags = ns.flags(flagSchema);
   let target;
-  if (ns.args.length === 3) {
+  if (ns.args.length === 3 || ns.args.length === 1) {
     target = ns.args[0] as string;
   } else {
     const targets = [];
@@ -176,7 +176,11 @@ export async function main(ns: NS) {
         string
       >();
       // prefer multiple cores for grow and weaken
-      for (const host of hosts.slice().sort((a, b) => b.cores - a.cores)) {
+      for (const host of hosts
+        .slice()
+        .sort((a, b) =>
+          a.cores === b.cores ? a.freeRam - b.freeRam : b.cores - a.cores,
+        )) {
         if (!batchHosts.has(firstWeakenTask) && host.freeRam >= batchCosts.w1) {
           batchHosts.set(firstWeakenTask, host.name);
           host.freeRam -= batchCosts.w1;
@@ -211,7 +215,11 @@ export async function main(ns: NS) {
       }
       if (allocated && batchCosts.h) {
         // avoid multiple core machines for hack
-        for (const host of hosts.slice().sort((a, b) => a.cores - b.cores)) {
+        for (const host of hosts
+          .slice()
+          .sort((a, b) =>
+            a.cores === b.cores ? a.freeRam - b.freeRam : a.cores - b.cores,
+          )) {
           if (host.freeRam >= batchCosts.h) {
             batchHosts.set(hackTask, host.name);
             host.freeRam -= batchCosts.h;
